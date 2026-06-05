@@ -14,4 +14,7 @@ dependencies = [
     "ruff>=0.15.16",
     "scikit-learn>=1.9.0",
     "zstd>=1.5.7.3",
+    "tensorflow>=2.14.0",   
+    "yfinance>=0.2.38",
+    "pandas-datareader>=0.10.0"
 ]
