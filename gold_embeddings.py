@@ -19,9 +19,11 @@ Usage:
 """
 
 import asyncio
+import hashlib
 import logging
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Literal
 
 import numpy as np
@@ -31,7 +33,11 @@ from dotenv import load_dotenv
 from openai import AsyncOpenAI
 from tqdm.asyncio import tqdm as atqdm
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(levelname)-8s %(message)s",
+    datefmt="%H:%M:%S",
+)
 logger = logging.getLogger(__name__)
 
 
@@ -51,8 +57,9 @@ def load_nomic_model(device: str = "auto", hf_token: str | None = None):
     if device == "auto":
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    logger.info("Loading nomic-embed-text-v1 on device: %s", device)
-    logger.info("(first run downloads ~550MB)")
+    logger.info("─── nomic-embed-text-v1 ────────────────────────────")
+    logger.info("    device : %s", device)
+    logger.info("    note   : first run downloads ~550 MB")
 
     model = SentenceTransformer(
         "nomic-ai/nomic-embed-text-v1",
@@ -60,7 +67,7 @@ def load_nomic_model(device: str = "auto", hf_token: str | None = None):
         device=device,
         token=hf_token,
     )
-    logger.info("Model loaded. Active device: %s", model.device)
+    logger.info("    ✓ loaded on %s", model.device)
     return model
 
 
@@ -71,20 +78,25 @@ def embed_nomic(texts: list[str], model, batch_size: int = 256) -> np.ndarray:
     Nomic requires the "search_document: " prefix on each text — without it,
     embedding quality drops significantly.
 
-    batch_size:
-      - 6GB GPU: 256–512 works well for short headlines
-      - CPU:     64 is safer
+    On CUDA OOM the batch_size is halved automatically until encode succeeds.
     """
     prefixed = [f"search_document: {t}" for t in texts]
 
-    embeddings = model.encode(
-        prefixed,
-        batch_size=batch_size,
-        show_progress_bar=True,
-        normalize_embeddings=True,  # L2-norm → cosine similarity = dot product
-        convert_to_numpy=True,
-    )
-    return embeddings  # shape: (N, 768)
+    while batch_size >= 1:
+        try:
+            return model.encode(
+                prefixed,
+                batch_size=batch_size,
+                show_progress_bar=True,
+                normalize_embeddings=True,  # L2-norm → cosine similarity = dot product
+                convert_to_numpy=True,
+            )
+        except torch.OutOfMemoryError:
+            torch.cuda.empty_cache()
+            batch_size //= 2
+            logger.warning("    CUDA OOM — retrying with batch_size=%d", batch_size)
+
+    raise RuntimeError("embed_nomic: OOM even with batch_size=1")
 
 
 # ─────────────────────────────────────────────
@@ -198,13 +210,45 @@ def build_windowed_texts(
             window_text = " | ".join(news[start : t + 1])
             windowed.append(window_text)
         result[W] = windowed
-        logger.info("  Window %dd: %d texts built.", W, len(windowed))
+        logger.info("    window %2dd → %d texts", W, len(windowed))
 
     return result
 
 
 # ─────────────────────────────────────────────
-# 4. MAIN PIPELINE
+# 4. EMBEDDING CACHE
+# ─────────────────────────────────────────────
+
+
+def _cache_key(texts: list[str], tag: str, W: int) -> str:
+    """SHA-1 over the windowed texts + model tag + window size."""
+    h = hashlib.sha1()
+    h.update(tag.encode())
+    h.update(str(W).encode())
+    for t in texts:
+        h.update(t.encode())
+    return h.hexdigest()[:16]
+
+
+def _cache_path(cache_dir: str, tag: str, W: int, key: str) -> Path:
+    return Path(cache_dir) / f"{tag}_{W}d_{key}.parquet"
+
+
+def _load_cache(path: Path) -> pd.DataFrame | None:
+    if path.exists():
+        logger.info("    ✓ cache hit  → %s", path.name)
+        return pd.read_parquet(path)
+    return None
+
+
+def _save_cache(emb_df: pd.DataFrame, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    emb_df.to_parquet(path, index=True, compression="zstd")
+    logger.info("    cached      → %s", path.name)
+
+
+# ─────────────────────────────────────────────
+# 5. MAIN PIPELINE
 # ─────────────────────────────────────────────
 
 
@@ -220,79 +264,104 @@ def run_pipeline(
     openai_model: str = "text-embedding-3-small",
     openai_batch_size: int = 100,
     openai_concurrency: int = 5,
+    cache_dir: str | None = None,
 ) -> pd.DataFrame:
     """
     Runs the full pipeline and returns the DataFrame with embedding columns.
     """
-    logger.info("=== Building temporal windows ===")
+    logger.info("─── temporal windows ───────────────────────────────")
     windowed_texts = build_windowed_texts(df, news_col, windows)
 
     result_df = df.copy()
 
     # ── Nomic (local, GPU) ─────────────────────────────────────
     if backend in ("nomic", "both"):
+        logger.info("")
         nomic_model = load_nomic_model(device=device, hf_token=hf_token)
 
         # Adjust batch_size automatically when running on CPU
         effective_batch = nomic_batch_size
         if str(nomic_model.device) == "cpu" and nomic_batch_size > 64:
             effective_batch = 64
-            logger.info("  CPU detected: batch_size adjusted to %d.", effective_batch)
+            logger.info("    CPU detected — batch_size reduced to %d", effective_batch)
 
-        logger.info(
-            "=== Generating embeddings with nomic-embed-text-v1 (batch=%d) ===",
-            effective_batch,
-        )
+        logger.info("")
+        logger.info("─── nomic embeddings ───────────────────────────────")
+        logger.info("    batch : %d", effective_batch)
 
         for W in windows:
-            logger.info("  Window %dd...", W)
-            embs = embed_nomic(
-                windowed_texts[W], nomic_model, batch_size=effective_batch
-            )
+            logger.info("    window %2dd ...", W)
+            cached = None
+            if cache_dir:
+                key = _cache_key(windowed_texts[W], "nomic", W)
+                path = _cache_path(cache_dir, "nomic", W, key)
+                cached = _load_cache(path)
 
-            emb_df = pd.DataFrame(
-                embs,
-                columns=[f"emb_nomic_{W}d_dim{i}" for i in range(embs.shape[1])],
-                index=result_df.index,
-            )
+            if cached is not None:
+                emb_df = cached
+            else:
+                embs = embed_nomic(
+                    windowed_texts[W], nomic_model, batch_size=effective_batch
+                )
+                emb_df = pd.DataFrame(
+                    embs,
+                    columns=[f"emb_nomic_{W}d_dim{i}" for i in range(embs.shape[1])],
+                    index=result_df.index,
+                )
+                if cache_dir:
+                    _save_cache(emb_df, path)
+
             result_df = pd.concat([result_df, emb_df], axis=1)
-            logger.info("  %d dims added — window %dd.", embs.shape[1], W)
+            logger.info("    ✓ %dd  →  %d dims", W, len(emb_df.columns))
 
     # ── OpenAI (API, async) ────────────────────────────────────
     if backend in ("openai", "both"):
         if not openai_key:
             raise ValueError("Provide --openai-key to use the OpenAI backend.")
 
-        logger.info("=== Generating embeddings with OpenAI %s ===", openai_model)
-        logger.info(
-            "    batch_size=%d, concurrency=%d", openai_batch_size, openai_concurrency
-        )
+        logger.info("")
+        logger.info("─── openai embeddings ──────────────────────────────")
+        logger.info("    model       : %s", openai_model)
+        logger.info("    batch       : %d", openai_batch_size)
+        logger.info("    concurrency : %d", openai_concurrency)
 
         model_tag = openai_model.replace("text-embedding-", "").replace("-", "_")
 
         for W in windows:
-            logger.info("  Window %dd...", W)
-            embs = embed_openai(
-                windowed_texts[W],
-                api_key=openai_key,
-                model=openai_model,
-                batch_size=openai_batch_size,
-                max_concurrent=openai_concurrency,
-            )
+            logger.info("    window %2dd ...", W)
+            cached = None
+            if cache_dir:
+                key = _cache_key(windowed_texts[W], model_tag, W)
+                path = _cache_path(cache_dir, model_tag, W, key)
+                cached = _load_cache(path)
 
-            emb_df = pd.DataFrame(
-                embs,
-                columns=[f"emb_{model_tag}_{W}d_dim{i}" for i in range(embs.shape[1])],
-                index=result_df.index,
-            )
+            if cached is not None:
+                emb_df = cached
+                logger.info("    ✓ cache loaded → %d dims", len(emb_df.columns))
+            else:
+                embs = embed_openai(
+                    windowed_texts[W],
+                    api_key=openai_key,
+                    model=openai_model,
+                    batch_size=openai_batch_size,
+                    max_concurrent=openai_concurrency,
+                )
+                emb_df = pd.DataFrame(
+                    embs,
+                    columns=[f"emb_{model_tag}_{W}d_dim{i}" for i in range(embs.shape[1])],
+                    index=result_df.index,
+                )
+                if cache_dir:
+                    _save_cache(emb_df, path)
+
             result_df = pd.concat([result_df, emb_df], axis=1)
-            logger.info("  %d dims added — window %dd.", embs.shape[1], W)
+            logger.info("    ✓ %dd  →  %d dims", W, len(emb_df.columns))
 
     return result_df
 
 
 # ─────────────────────────────────────────────
-# 5. EXTRA FEATURE: 1d vs 7d DEVIATION
+# 6. EXTRA FEATURE: 1d vs 7d DEVIATION
 # ─────────────────────────────────────────────
 
 
@@ -319,7 +388,7 @@ def add_deviation_features(
         cols_7d = [c for c in df.columns if c.startswith(f"emb_{tag}_7d_dim")]
 
         if not cols_1d or not cols_7d:
-            logger.warning("  Deviation %s: 1d or 7d windows not found, skipping.", tag)
+            logger.warning("    [%s] 1d or 7d window columns not found, skipping", tag)
             continue
 
         deviation = df[cols_1d].values - df[cols_7d].values
@@ -331,7 +400,7 @@ def add_deviation_features(
             index=df.index,
         )
         df = pd.concat([df, dev_df], axis=1)
-        logger.info("  1d-7d deviation added for %s (%d dims).", tag, n_dims)
+        logger.info("    ✓ [%s]  1d–7d deviation  →  %d dims", tag, n_dims)
 
     return df
 
@@ -345,17 +414,19 @@ def add_deviation_features(
 class Config:
     data_path: str = "gold.csv"
     output_path: str | None = None  # None → replaces .csv with _embeddings.parquet
+    separator: str = ","  # for CSV loading (not needed for Parquet)
     date_col: str = "Date"
     news_col: str = "News"
     backend: Literal["nomic", "openai", "both"] = "nomic"
     device: Literal["auto", "cuda", "cpu"] = "auto"
-    nomic_batch_size: int = 256  # auto-reduced to 64 on CPU
+    nomic_batch_size: int = 32   # halved automatically on CUDA OOM; 64 on CPU
     openai_model: Literal["text-embedding-3-small", "text-embedding-3-large"] = (
         "text-embedding-3-small"
     )
     openai_batch_size: int = 100
     openai_concurrency: int = 5
     windows: list[int] = field(default_factory=lambda: [1, 7, 30])
+    cache_dir: str | None = ".emb_cache"  # None disables caching
 
 
 def main(cfg: Config) -> None:
@@ -365,16 +436,18 @@ def main(cfg: Config) -> None:
     hf_token = os.getenv("HF_TOKEN")
 
     # ── Load and sort chronologically ──────────────────────────
-    logger.info("Loading %s...", cfg.data_path)
-    df = pd.read_csv(cfg.data_path, parse_dates=[cfg.date_col])
+    logger.info("─── input ──────────────────────────────────────────")
+    logger.info("    file    : %s", cfg.data_path)
+    df = pd.read_csv(cfg.data_path, parse_dates=[cfg.date_col], sep=cfg.separator)
     df = df.sort_values(cfg.date_col).reset_index(drop=True)
-    logger.info(
-        "  %d rows | %s → %s",
+    logger.info("    rows    : %d  (%s → %s)",
         len(df),
         df[cfg.date_col].min().date(),
         df[cfg.date_col].max().date(),
     )
-    logger.info("  Windows: %s", cfg.windows)
+    logger.info("    windows : %s", cfg.windows)
+    logger.info("    cache   : %s", cfg.cache_dir or "disabled")
+    logger.info("")
 
     # ── Embedding pipeline ─────────────────────────────────────
     result_df = run_pipeline(
@@ -388,20 +461,27 @@ def main(cfg: Config) -> None:
         openai_key=openai_key,
         openai_model=cfg.openai_model,
         openai_concurrency=cfg.openai_concurrency,
+        cache_dir=cfg.cache_dir,
     )
 
     # ── 1d vs 7d deviation (if both windows were generated) ────
     if 1 in cfg.windows and 7 in cfg.windows:
-        logger.info("=== Computing 1d vs 7d deviation ===")
+        logger.info("")
+        logger.info("─── 1d vs 7d deviation ─────────────────────────────")
         result_df = add_deviation_features(result_df, cfg.backend, cfg.openai_model)
 
     # ── Save ───────────────────────────────────────────────────
-    output_path = cfg.output_path or cfg.data_path.replace(".csv", "_embeddings.parquet")
+    output_path = cfg.output_path or cfg.data_path.replace(
+        ".csv", "_embeddings.parquet"
+    )
     result_df.to_parquet(output_path, index=False, compression="zstd")
 
     n_emb_cols = len([c for c in result_df.columns if c.startswith("emb_")])
-    logger.info("Saved to: %s", output_path)
-    logger.info("  Final shape: %s (%d embedding columns)", result_df.shape, n_emb_cols)
+    logger.info("")
+    logger.info("─── done ───────────────────────────────────────────")
+    logger.info("    path    : %s", output_path)
+    logger.info("    shape   : %s", result_df.shape)
+    logger.info("    emb cols: %d", n_emb_cols)
 
 
 # ─────────────────────────────────────────────
@@ -410,8 +490,12 @@ def main(cfg: Config) -> None:
 
 if __name__ == "__main__":
     cfg = Config(
-        data_path="gold.csv",
-        backend="nomic",
-        windows=[1, 7, 30],
+        data_path="./data/final_gold_data.csv",
+        date_col="timestamp",
+        news_col="headlines",
+        separator=";",
+        backend="openai",
+        nomic_batch_size=128,
+        windows=[1, 7],
     )
     main(cfg)
