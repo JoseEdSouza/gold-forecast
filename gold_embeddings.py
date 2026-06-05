@@ -6,7 +6,7 @@ Generates embeddings from news headlines for gold price forecasting.
 Strategy:
   - For each day t, concatenate headlines from the 1d, 7d, and 30d windows
   - Generate embeddings with nomic-embed-text-v1 (local, GPU) and/or OpenAI (async)
-  - Save the result as Parquet (zstd) with columns emb_*_dim0 ... emb_*_dimN
+  - Save the result as Parquet (zstd) with one list[float] column per (backend, window)
 
 Expected input CSV structure:
   - Date column      : "Date" (YYYY-MM-DD format or similar)
@@ -304,15 +304,16 @@ def run_pipeline(
                     windowed_texts[W], nomic_model, batch_size=effective_batch
                 )
                 emb_df = pd.DataFrame(
-                    embs,
-                    columns=[f"emb_nomic_{W}d_dim{i}" for i in range(embs.shape[1])],
+                    {f"emb_nomic_{W}d": list(embs.tolist())},
                     index=result_df.index,
                 )
                 if cache_dir:
                     _save_cache(emb_df, path)
 
             result_df = pd.concat([result_df, emb_df], axis=1)
-            logger.info("    ✓ %dd  →  %d dims", W, len(emb_df.columns))
+            logger.info(
+                "    ✓ %dd  →  %d dims", W, len(emb_df[f"emb_nomic_{W}d"].iloc[0])
+            )
 
     # ── OpenAI (API, async) ────────────────────────────────────
     if backend in ("openai", "both"):
@@ -337,7 +338,6 @@ def run_pipeline(
 
             if cached is not None:
                 emb_df = cached
-                logger.info("    ✓ cache loaded → %d dims", len(emb_df.columns))
             else:
                 embs = embed_openai(
                     windowed_texts[W],
@@ -347,15 +347,16 @@ def run_pipeline(
                     max_concurrent=openai_concurrency,
                 )
                 emb_df = pd.DataFrame(
-                    embs,
-                    columns=[f"emb_{model_tag}_{W}d_dim{i}" for i in range(embs.shape[1])],
+                    {f"emb_{model_tag}_{W}d": embs.tolist()},
                     index=result_df.index,
                 )
                 if cache_dir:
                     _save_cache(emb_df, path)
 
             result_df = pd.concat([result_df, emb_df], axis=1)
-            logger.info("    ✓ %dd  →  %d dims", W, len(emb_df.columns))
+            logger.info(
+                "    ✓ %dd  →  %d dims", W, len(emb_df[f"emb_{model_tag}_{W}d"].iloc[0])
+            )
 
     return result_df
 
@@ -384,23 +385,19 @@ def add_deviation_features(
         tags.append(openai_model.replace("text-embedding-", "").replace("-", "_"))
 
     for tag in tags:
-        cols_1d = [c for c in df.columns if c.startswith(f"emb_{tag}_1d_dim")]
-        cols_7d = [c for c in df.columns if c.startswith(f"emb_{tag}_7d_dim")]
+        col_1d = f"emb_{tag}_1d"
+        col_7d = f"emb_{tag}_7d"
 
-        if not cols_1d or not cols_7d:
-            logger.warning("    [%s] 1d or 7d window columns not found, skipping", tag)
+        if col_1d not in df.columns or col_7d not in df.columns:
+            logger.warning("    [%s] 1d or 7d column not found, skipping", tag)
             continue
 
-        deviation = df[cols_1d].values - df[cols_7d].values
-        n_dims = deviation.shape[1]
+        arr_1d = np.stack(df[col_1d].tolist())
+        arr_7d = np.stack(df[col_7d].tolist())
+        deviation = (arr_1d - arr_7d).tolist()
 
-        dev_df = pd.DataFrame(
-            deviation,
-            columns=[f"emb_{tag}_dev_1d_7d_dim{i}" for i in range(n_dims)],
-            index=df.index,
-        )
-        df = pd.concat([df, dev_df], axis=1)
-        logger.info("    ✓ [%s]  1d–7d deviation  →  %d dims", tag, n_dims)
+        df[f"emb_{tag}_dev_1d_7d"] = deviation
+        logger.info("    ✓ [%s]  1d–7d deviation  →  %d dims", tag, len(deviation[0]))
 
     return df
 
@@ -413,13 +410,13 @@ def add_deviation_features(
 @dataclass
 class Config:
     data_path: str = "gold.csv"
-    output_path: str | None = None  # None → replaces .csv with _embeddings.parquet
+    output_dir: str = "./out"  # output directory; filename derived from data_path
     separator: str = ","  # for CSV loading (not needed for Parquet)
     date_col: str = "Date"
     news_col: str = "News"
     backend: Literal["nomic", "openai", "both"] = "nomic"
     device: Literal["auto", "cuda", "cpu"] = "auto"
-    nomic_batch_size: int = 32   # halved automatically on CUDA OOM; 64 on CPU
+    nomic_batch_size: int = 32  # halved automatically on CUDA OOM; 64 on CPU
     openai_model: Literal["text-embedding-3-small", "text-embedding-3-large"] = (
         "text-embedding-3-small"
     )
@@ -440,7 +437,8 @@ def main(cfg: Config) -> None:
     logger.info("    file    : %s", cfg.data_path)
     df = pd.read_csv(cfg.data_path, parse_dates=[cfg.date_col], sep=cfg.separator)
     df = df.sort_values(cfg.date_col).reset_index(drop=True)
-    logger.info("    rows    : %d  (%s → %s)",
+    logger.info(
+        "    rows    : %d  (%s → %s)",
         len(df),
         df[cfg.date_col].min().date(),
         df[cfg.date_col].max().date(),
@@ -471,12 +469,20 @@ def main(cfg: Config) -> None:
         result_df = add_deviation_features(result_df, cfg.backend, cfg.openai_model)
 
     # ── Save ───────────────────────────────────────────────────
-    output_path = cfg.output_path or cfg.data_path.replace(
-        ".csv", "_embeddings.parquet"
-    )
+    stem = Path(cfg.data_path).stem + "_embeddings"
+    base = Path(cfg.output_dir) / f"{stem}.parquet"
+    base.parent.mkdir(parents=True, exist_ok=True)
+    output_path = base
+    if output_path.exists():
+        n = 1
+        while (candidate := base.with_stem(f"{base.stem}_{n}")).exists():
+            n += 1
+        output_path = candidate
+
     result_df.to_parquet(output_path, index=False, compression="zstd")
 
-    n_emb_cols = len([c for c in result_df.columns if c.startswith("emb_")])
+    emb_cols = [c for c in result_df.columns if c.startswith("emb_")]
+    n_emb_cols = len(emb_cols)
     logger.info("")
     logger.info("─── done ───────────────────────────────────────────")
     logger.info("    path    : %s", output_path)
@@ -494,7 +500,7 @@ if __name__ == "__main__":
         date_col="timestamp",
         news_col="headlines",
         separator=";",
-        backend="openai",
+        backend="nomic",
         nomic_batch_size=128,
         windows=[1, 7],
     )
