@@ -6,7 +6,7 @@ Generates embeddings from news headlines for gold price forecasting.
 Strategy:
   - For each day t, concatenate headlines from the 1d, 7d, and 30d windows
   - Generate embeddings with nomic-embed-text-v1 (local, GPU) and/or OpenAI (async)
-  - Save the result as CSV with columns emb_*_dim0 ... emb_*_dimN
+  - Save the result as Parquet (zstd) with columns emb_*_dim0 ... emb_*_dimN
 
 Expected input CSV structure:
   - Date column      : "Date" (YYYY-MM-DD format or similar)
@@ -344,7 +344,7 @@ def add_deviation_features(
 @dataclass
 class Config:
     data_path: str = "gold.csv"
-    output_path: str | None = None  # None → replaces .csv with _embeddings.csv
+    output_path: str | None = None  # None → replaces .csv with _embeddings.parquet
     date_col: str = "Date"
     news_col: str = "News"
     backend: Literal["nomic", "openai", "both"] = "nomic"
@@ -396,8 +396,8 @@ def main(cfg: Config) -> None:
         result_df = add_deviation_features(result_df, cfg.backend, cfg.openai_model)
 
     # ── Save ───────────────────────────────────────────────────
-    output_path = cfg.output_path or cfg.data_path.replace(".csv", "_embeddings.csv")
-    result_df.to_csv(output_path, index=False)
+    output_path = cfg.output_path or cfg.data_path.replace(".csv", "_embeddings.parquet")
+    result_df.to_parquet(output_path, index=False, compression="zstd")
 
     n_emb_cols = len([c for c in result_df.columns if c.startswith("emb_")])
     logger.info("Saved to: %s", output_path)
