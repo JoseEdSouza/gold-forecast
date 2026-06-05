@@ -1,4 +1,4 @@
-""" "
+"""
 gold_embeddings.py
 ==================
 Generates embeddings from news headlines for gold price forecasting.
@@ -14,20 +14,15 @@ Expected input CSV structure:
   - Headlines column : "News" (daily headlines already concatenated)
 
 Usage:
-  python gold_embeddings.py --input gold.csv --backend nomic
-  python gold_embeddings.py --input gold.csv --backend openai --openai-key sk-...
-  python gold_embeddings.py --input gold.csv --backend both   --openai-key sk-...
-
-Optional flags:
-  --batch-size 256        nomic batch size (default: 256 on GPU, 64 on CPU)
-  --openai-concurrency 5  concurrent OpenAI requests (default: 5)
-  --device cuda           force GPU for nomic; "cpu" forces CPU
+  Edit the Config block at the bottom of this file, then run:
+    python gold_embeddings.py
 """
 
-import argparse
 import asyncio
 import logging
 import os
+from dataclasses import dataclass, field
+from typing import Literal
 
 import numpy as np
 import pandas as pd
@@ -244,7 +239,10 @@ def run_pipeline(
             effective_batch = 64
             logger.info("  CPU detected: batch_size adjusted to %d.", effective_batch)
 
-        logger.info("=== Generating embeddings with nomic-embed-text-v1 (batch=%d) ===", effective_batch)
+        logger.info(
+            "=== Generating embeddings with nomic-embed-text-v1 (batch=%d) ===",
+            effective_batch,
+        )
 
         for W in windows:
             logger.info("  Window %dd...", W)
@@ -266,7 +264,9 @@ def run_pipeline(
             raise ValueError("Provide --openai-key to use the OpenAI backend.")
 
         logger.info("=== Generating embeddings with OpenAI %s ===", openai_model)
-        logger.info("    batch_size=%d, concurrency=%d", openai_batch_size, openai_concurrency)
+        logger.info(
+            "    batch_size=%d, concurrency=%d", openai_batch_size, openai_concurrency
+        )
 
         model_tag = openai_model.replace("text-embedding-", "").replace("-", "_")
 
@@ -337,89 +337,66 @@ def add_deviation_features(
 
 
 # ─────────────────────────────────────────────
-# 6. ENTRY POINT
+# 6. CONFIG + ENTRY POINT
 # ─────────────────────────────────────────────
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Generate embeddings from news headlines for gold price forecasting."
+@dataclass
+class Config:
+    data_path: str = "gold.csv"
+    output_path: str | None = None  # None → replaces .csv with _embeddings.csv
+    date_col: str = "Date"
+    news_col: str = "News"
+    backend: Literal["nomic", "openai", "both"] = "nomic"
+    device: Literal["auto", "cuda", "cpu"] = "auto"
+    nomic_batch_size: int = 256  # auto-reduced to 64 on CPU
+    openai_model: Literal["text-embedding-3-small", "text-embedding-3-large"] = (
+        "text-embedding-3-small"
     )
-    parser.add_argument("--input", required=True)
-    parser.add_argument("--output", default=None)
-    parser.add_argument("--date-col", default="Date")
-    parser.add_argument("--news-col", default="News")
-    parser.add_argument(
-        "--backend", default="nomic", choices=["nomic", "openai", "both"]
-    )
-    parser.add_argument(
-        "--device", default="auto", help="Device for nomic: 'auto', 'cuda', 'cpu'"
-    )
-    parser.add_argument(
-        "--batch-size",
-        default=256,
-        type=int,
-        help="Nomic batch size (default 256; auto-reduced on CPU)",
-    )
-    parser.add_argument("--openai-key", default=None)
-    parser.add_argument(
-        "--openai-model",
-        default="text-embedding-3-small",
-        choices=["text-embedding-3-small", "text-embedding-3-large"],
-    )
-    parser.add_argument(
-        "--openai-concurrency",
-        default=5,
-        type=int,
-        help="Concurrent requests to OpenAI (default: 5)",
-    )
-    parser.add_argument(
-        "--windows",
-        default="1,7,30",
-        help="Comma-separated window sizes in days (default: 1,7,30)",
-    )
-    args = parser.parse_args()
+    openai_batch_size: int = 100
+    openai_concurrency: int = 5
+    windows: list[int] = field(default_factory=lambda: [1, 7, 30])
 
-    # ── Load env vars (.env takes precedence over system env) ──
+
+def main(cfg: Config) -> None:
+    # ── Load env vars ──────────────────────────────────────────
     load_dotenv()
-    openai_key = args.openai_key or os.getenv("OPENAI_KEY")
+    openai_key = os.getenv("OPENAI_KEY")
     hf_token = os.getenv("HF_TOKEN")
 
     # ── Load and sort chronologically ──────────────────────────
-    logger.info("Loading %s...", args.input)
-    df = pd.read_csv(args.input, parse_dates=[args.date_col])
-    df = df.sort_values(args.date_col).reset_index(drop=True)
+    logger.info("Loading %s...", cfg.data_path)
+    df = pd.read_csv(cfg.data_path, parse_dates=[cfg.date_col])
+    df = df.sort_values(cfg.date_col).reset_index(drop=True)
     logger.info(
         "  %d rows | %s → %s",
         len(df),
-        df[args.date_col].min().date(),
-        df[args.date_col].max().date(),
+        df[cfg.date_col].min().date(),
+        df[cfg.date_col].max().date(),
     )
-
-    windows = [int(w) for w in args.windows.split(",")]
-    logger.info("  Windows: %s", windows)
+    logger.info("  Windows: %s", cfg.windows)
 
     # ── Embedding pipeline ─────────────────────────────────────
     result_df = run_pipeline(
         df=df,
-        news_col=args.news_col,
-        windows=windows,
-        backend=args.backend,
-        device=args.device,
-        nomic_batch_size=args.batch_size,
+        news_col=cfg.news_col,
+        windows=cfg.windows,
+        backend=cfg.backend,
+        device=cfg.device,
+        nomic_batch_size=cfg.nomic_batch_size,
         hf_token=hf_token,
         openai_key=openai_key,
-        openai_model=args.openai_model,
-        openai_concurrency=args.openai_concurrency,
+        openai_model=cfg.openai_model,
+        openai_concurrency=cfg.openai_concurrency,
     )
 
     # ── 1d vs 7d deviation (if both windows were generated) ────
-    if 1 in windows and 7 in windows:
+    if 1 in cfg.windows and 7 in cfg.windows:
         logger.info("=== Computing 1d vs 7d deviation ===")
-        result_df = add_deviation_features(result_df, args.backend, args.openai_model)
+        result_df = add_deviation_features(result_df, cfg.backend, cfg.openai_model)
 
     # ── Save ───────────────────────────────────────────────────
-    output_path = args.output or args.input.replace(".csv", "_embeddings.csv")
+    output_path = cfg.output_path or cfg.data_path.replace(".csv", "_embeddings.csv")
     result_df.to_csv(output_path, index=False)
 
     n_emb_cols = len([c for c in result_df.columns if c.startswith("emb_")])
@@ -427,5 +404,14 @@ def main():
     logger.info("  Final shape: %s (%d embedding columns)", result_df.shape, n_emb_cols)
 
 
+# ─────────────────────────────────────────────
+# CONFIGURE AND RUN
+# ─────────────────────────────────────────────
+
 if __name__ == "__main__":
-    main()
+    cfg = Config(
+        data_path="gold.csv",
+        backend="nomic",
+        windows=[1, 7, 30],
+    )
+    main(cfg)
