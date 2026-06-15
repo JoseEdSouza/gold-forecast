@@ -3,7 +3,7 @@
 
 # # Célula 1 — Imports
 
-# In[158]:
+# In[144]:
 
 
 from pathlib import Path
@@ -21,26 +21,43 @@ from sklearn.linear_model import Ridge
 import tensorflow as tf
 from tensorflow.keras import Input
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense, Dropout
+from tensorflow.keras.layers import Dense, Dropout
 from tensorflow.keras.callbacks import EarlyStopping
 from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.callbacks import ReduceLROnPlateau
  
 import yfinance as yf
 import requests
 from arch import arch_model
+from scipy.stats import spearmanr
+
+
+# In[145]:
+
+
+def qlike(y_true, y_pred):
+    ratio = y_true / y_pred
+    return np.mean(ratio - np.log(ratio) - 1)
+
+def eval_metrics(y_true, y_pred, label):
+    print(f"\n── {label} ──")
+    print(f"  QLIKE    : {qlike(y_true, y_pred):.6f}  (baseline média: {qlike(y_true, np.full_like(y_true, y_true.mean())):.6f})")
+    print(f"  R²       : {r2_score(y_true, y_pred):.4f}")
+    print(f"  Spearman : {spearmanr(y_true, y_pred).statistic:.4f}")
+    print(f"  std ratio: {y_pred.std() / y_true.std():.3f}  (ideal=1.0)")
 
 
 # # Célula 2 — Constantes 
 
-# In[159]:
+# In[146]:
 
 
-START          = "2003-01-02"
+START          = "2008-01-01"
 END            = "2025-04-14"
 TEST_RATIO     = 0.1
 SEED           = 42
-WINDOW_SIZE    = 20       
-VOL_WINDOW     = 5    # era 21
+WINDOW_SIZE    = 60       
+VOL_WINDOW     = 10    # era 21
 VOL_SHIFT      = -5   # era -21
  
 FRED_API_KEY   = "a75bdc9f7da239a5e3d6c8e389345bfb"
@@ -54,7 +71,7 @@ tf.config.experimental.enable_op_determinism()
 
 # # Célula 3 - Requição para API do FRED
 
-# In[160]:
+# In[147]:
 
 
 def get_fred_series(series_id: str, start: str, end: str, api_key: str) -> pd.DataFrame:
@@ -83,7 +100,7 @@ print(dfii10.head())
 
 # # Células 4, 5, 6 e 7 - Carrega dataframes
 
-# In[161]:
+# In[148]:
 
 
 petrodolar = pd.read_csv(
@@ -109,7 +126,7 @@ print(petrodolar.shape)
 print(petrodolar.head())
 
 
-# In[162]:
+# In[149]:
 
 
 opec = pd.read_csv(
@@ -148,7 +165,7 @@ print("Dedolar:", dedolar.shape)
 print("SWF:", swf.shape)
 
 
-# In[163]:
+# In[150]:
 
 
 tickers = {
@@ -158,6 +175,7 @@ tickers = {
     "tips":  "TIP",
     "sp500": "^GSPC",
     "tnx": "^TNX",
+    "gvz":   "^GVZ",
 }
 
 dfs = {}
@@ -177,7 +195,7 @@ print(externos.shape)
 print(externos.head())
 
 
-# In[164]:
+# In[151]:
 
 
 gold      = pd.read_csv(DATA_BASE_PATH / "final_gold_data.csv",      sep=";", encoding="utf-8", parse_dates=["timestamp"])
@@ -201,7 +219,7 @@ print("Gold:", gold.shape)
 
 # # Célula 8 - Merges
 
-# In[165]:
+# In[152]:
 
 
 for df in [gold, palladium, platinum, silver, externos]:
@@ -252,7 +270,7 @@ print(gold.isna().sum()[gold.isna().sum() > 0])
 
 # # Célula 9 - Feature Engineering
 
-# In[166]:
+# In[153]:
 
 
 gold["day_variation"]  = gold["open"] - gold["close"]
@@ -281,6 +299,11 @@ gold["petrodolar_brent"] = gold["brent_crude_usd"] / gold["usd_dxy_index"]
 gold["brent_roc_20"]     = gold["brent_crude_usd"].pct_change(20)
 gold["brent_vol_20"]     = gold["brent_crude_usd"].pct_change().rolling(20).std()
 gold["close_return"] = gold["close"].pct_change()
+gold["gvz_pct_change"] = gold["gvz"].pct_change(5)
+gold["gvz_zscore_60d"] = (
+    (gold["gvz"] - gold["gvz"].rolling(60).mean())
+    / gold["gvz"].rolling(60).std()
+)
  
 delta    = gold["close"].diff()
 gain     = delta.clip(lower=0)
@@ -291,15 +314,39 @@ rs       = avg_gain / avg_loss
 gold["rsi_14"] = 100 - (100 / (1 + rs))
  
 gold["log_return"] = np.log(gold["close"] / gold["close"].shift(1))
+gold["hist_vol_5"]  = gold["log_return"].rolling(5).std()
+gold["hist_vol_10"] = gold["log_return"].rolling(10).std()
+gold["hist_vol_20"] = gold["log_return"].rolling(20).std()
+gold["hist_vol_60"] = gold["log_return"].rolling(60).std()
 
 gold["target_vol_5d"] = gold["log_return"].rolling(VOL_WINDOW).std().shift(VOL_SHIFT)
- 
+gold["rv_5"] = gold["log_return"].rolling(5).std()
+gold["rv_20"] = gold["log_return"].rolling(20).std()
+gold["rv_60"] = gold["log_return"].rolling(60).std()
+gold["rv_20_rank"] = (
+    gold["rv_20"]
+    .rolling(252)
+    .rank(pct=True)
+)
+
+gold["vix_rank"] = (
+    gold["vix"]
+    .rolling(252)
+    .rank(pct=True)
+)
+
+gold["garch_rank"] = (
+    gold["garch_vol"]
+    .rolling(252)
+    .rank(pct=True)
+)
+
 gold = gold.dropna()
 print("Shape após feature engineering:", gold.shape)
 print("NaN restantes:", gold.isna().sum().sum())
 
 
-# In[167]:
+# In[ ]:
 
 
 # Fit GARCH no treino completo e extrair volatilidade condicional
@@ -318,7 +365,7 @@ gold = gold.merge(
 
 # # Célula 10 - Target
 
-# In[168]:
+# In[ ]:
 
 
 TARGET = "target_vol_5d"
@@ -346,6 +393,11 @@ cols_to_remove = [
     "silver_low",
     "platinum_volume",
     "palladium_volume",
+    "gvz",
+    "gvz_vix_spread",
+    "garch_vol",   # fitado em todo o dataset — leakage
+    "gvz",
+    "gvz_vix_spread",
 ]
  
 X = gold.drop(columns=[c for c in to_drop + [TARGET] + cols_to_remove if c in gold.columns])
@@ -356,7 +408,7 @@ print("Features restantes:", list(X.columns))
 print("n_features:", n_features)
 
 
-# In[169]:
+# In[ ]:
 
 
 split_idx = int(len(gold) * (1 - TEST_RATIO))
@@ -366,7 +418,7 @@ vix_test  = gold["vix"].iloc[split_idx:].values
 y_train_bl = y.iloc[:split_idx].values
 y_test_bl  = y.iloc[split_idx:].values
  
-# Regressão linear simples VIX → target_vol
+# Regressão linear simples VIX -> target_vol
 ridge_bl = Ridge(alpha=1.0)
 ridge_bl.fit(vix_train.reshape(-1, 1), y_train_bl)
 vix_pred_test = ridge_bl.predict(vix_test.reshape(-1, 1))
@@ -382,7 +434,7 @@ print("  (O LSTM precisa superar esse baseline para justificar sua complexidade)
 
 # # Célula 11 - Create sequences
 
-# In[170]:
+# In[ ]:
 
 
 # Célula 7 — Sequences + split
@@ -410,15 +462,18 @@ print("Train:", X_train_full.shape, "Test:", X_test.shape)
 
 # # Célula 12 - Criação do modelo
 
-# In[171]:
+# In[ ]:
 
+
+from tensorflow.keras.layers import GRU
 
 def build_model(learning_rate=0.0001):
     model = Sequential([
         Input(shape=(WINDOW_SIZE, n_features)),
-        LSTM(32, return_sequences=False),
-        Dropout(0.3),
+        GRU(64),
+        Dropout(0.2),
         Dense(16, activation="relu"),
+        Dropout(0.1),
         Dense(1)
     ])
     model.compile(optimizer=Adam(learning_rate), loss="huber")
@@ -427,7 +482,7 @@ def build_model(learning_rate=0.0001):
 
 # # Célula 13 - Normalização
 
-# In[172]:
+# In[ ]:
 
 
 x_scaler = StandardScaler()
@@ -447,74 +502,136 @@ print("y_train_scaled mean:", y_train_scaled.mean(), "std:", y_train_scaled.std(
 
 # # Célula 14 - Separação em treino e teste
 
-# In[173]:
+# In[ ]:
 
 
 tscv = TimeSeriesSplit(n_splits=5)
-folds = list(tscv.split(X_seq))   # materializa todos os folds
- 
+folds = list(tscv.split(X_seq))
+
 walk_r2s = []
-val_X_final, val_y_final = None, None  # será o último fold — usado no treino final
- 
+last_val_idx = None  # <- salva índices, não os dados escalados
+
 for fold, (train_idx, val_idx) in enumerate(folds):
     X_tr = X_seq[train_idx];  X_va = X_seq[val_idx]
     y_tr = y_seq[train_idx];  y_va = y_seq[val_idx]
- 
+
     sc_x = StandardScaler()
     X_tr_s = sc_x.fit_transform(X_tr.reshape(-1, n_features)).reshape(X_tr.shape)
     X_va_s = sc_x.transform(X_va.reshape(-1, n_features)).reshape(X_va.shape)
- 
+
     sc_y = StandardScaler()
     y_tr_s = sc_y.fit_transform(y_tr.reshape(-1, 1)).ravel()
     y_va_s = sc_y.transform(y_va.reshape(-1, 1)).ravel()
- 
+
     tf.keras.backend.clear_session()
     m = build_model()
     m.fit(
         X_tr_s, y_tr_s,
         epochs=100, batch_size=32,
-        validation_data=(X_va_s, y_va_s),   # <- explícito, não validation_split
+        validation_data=(X_va_s, y_va_s),
         shuffle=False, verbose=0,
         callbacks=[EarlyStopping(patience=10, restore_best_weights=True, min_delta=1e-5)]
     )
- 
+
     pred_s = m.predict(X_va_s, verbose=0)
     pred   = sc_y.inverse_transform(pred_s.reshape(-1, 1)).ravel()
     r2 = r2_score(y_va, pred)
     walk_r2s.append(r2)
     print(f"Fold {fold+1} R²: {r2:.4f}  |  pred_std: {pred.std():.6f}  |  real_std: {y_va.std():.6f}")
- 
+
     if fold == len(folds) - 1:
-        val_X_final = X_va_s.copy()
-        val_y_final = y_va_s.copy()
- 
+        last_val_idx = val_idx  # <- só os índices
+
 print(f"\nR² médio walk-forward: {np.mean(walk_r2s):.4f}")
+
+# Reescalar com o scaler global 
+val_X_final = x_scaler.transform(
+    X_seq[last_val_idx].reshape(-1, n_features)
+).reshape(X_seq[last_val_idx].shape)
+
+val_y_final = y_scaler.transform(
+    y_seq[last_val_idx].reshape(-1, 1)
+).ravel()
 
 
 # # Célula 15 - Treino
 
-# In[174]:
+# In[ ]:
 
+
+TRAIN_YEARS = 4
+
+seq_ts = gold["timestamp"].iloc[WINDOW_SIZE:].reset_index(drop=True)
+seq_ts = seq_ts.iloc[mask].reset_index(drop=True)
+
+test_start  = seq_ts.iloc[int(len(seq_ts) * (1 - TEST_RATIO))]
+train_end   = test_start
+train_start = train_end - pd.DateOffset(years=TRAIN_YEARS)
+
+slide_mask = (seq_ts >= train_start) & (seq_ts < train_end)
+slide_mask = slide_mask.values
+
+X_slide = X_seq[slide_mask]
+y_slide = y_seq[slide_mask]
+
+print(f"Janela de treino: {train_start.date()} → {train_end.date()}")
+print(f"Amostras: {X_slide.shape}")
+
+x_scaler_slide = StandardScaler()
+X_slide_s = x_scaler_slide.fit_transform(
+    X_slide.reshape(-1, n_features)
+).reshape(X_slide.shape)
+
+y_scaler_slide = StandardScaler()
+y_slide_s = y_scaler_slide.fit_transform(y_slide.reshape(-1, 1)).ravel()
+
+# Escala o teste com o scaler da janela deslizante
+X_test_slide_s = x_scaler_slide.transform(
+    X_test.reshape(-1, n_features)
+).reshape(X_test.shape)
+
+# Val set = últimos 15% da janela deslizante (dentro do treino)
+val_cut = int(len(X_slide_s) * 0.85)
+val_X_slide  = X_slide_s[val_cut:]
+val_y_slide  = y_slide_s[val_cut:]
+X_slide_train = X_slide_s[:val_cut]
+y_slide_train = y_slide_s[:val_cut]
+
+print(f"Treino: {X_slide_train.shape}  Val: {val_X_slide.shape}")
 
 tf.keras.backend.clear_session()
 final_model = build_model()
- 
-early_stop = EarlyStopping(
-    monitor="val_loss", patience=20, restore_best_weights=True, min_delta=1e-5
-)
- 
+
 history = final_model.fit(
-    X_train_scaled, y_train_scaled,
-    validation_data=(val_X_final, val_y_final),  
-    epochs=300,
-    batch_size=64,
-    callbacks=[early_stop],
+    X_slide_train, y_slide_train,
+    validation_data=(val_X_slide, val_y_slide),
+    epochs=500,
+    batch_size=32,
     shuffle=False,
+    callbacks=[
+        EarlyStopping(monitor="val_loss", patience=20,
+                      restore_best_weights=True, min_delta=1e-6),
+        ReduceLROnPlateau(monitor="val_loss", factor=0.5,
+                          patience=15, min_lr=1e-6, verbose=1),
+    ],
     verbose=1,
 )
 
+y_pred_slide_train = y_scaler_slide.inverse_transform(
+    final_model.predict(X_slide_train, verbose=0)
+).flatten()
 
-# In[175]:
+y_pred_slide_test = y_scaler_slide.inverse_transform(
+    final_model.predict(X_test_slide_s, verbose=0)
+).flatten()
+
+y_test_eval = y_test
+
+eval_metrics(y_slide[:val_cut], y_pred_slide_train, "LSTM TRAIN (slide)")
+eval_metrics(y_test_eval,       y_pred_slide_test,  "LSTM TEST  (slide)")
+
+
+# In[ ]:
 
 
 print("y_train_scaled mean:", y_train_scaled.mean())
@@ -525,7 +642,7 @@ print("NaN em y_train_scaled:", np.isnan(y_train_scaled).sum())
 print("NaN em X_train_scaled:", np.isnan(X_train_scaled).sum())
 
 
-# In[176]:
+# In[ ]:
 
 
 nan_cols = X.columns[X.isna().any()].tolist()
@@ -535,7 +652,7 @@ print(X[nan_cols].isna().sum())
 
 # # Célula 16 - Métricas
 
-# In[177]:
+# In[ ]:
 
 
 y_pred_train = y_scaler.inverse_transform(
@@ -565,7 +682,35 @@ for name, y_true, y_pred in [
     print("Correlação pred vs real:", corr)
 
 
-# In[178]:
+# In[ ]:
+
+
+y_pred_train = y_scaler.inverse_transform(
+    final_model.predict(X_train_scaled)
+).flatten()
+y_pred_test = y_scaler.inverse_transform(
+    final_model.predict(X_test_scaled)
+).flatten()
+
+eval_metrics(y_train_full, y_pred_train, "LSTM TRAIN")
+eval_metrics(y_test,       y_pred_test,  "LSTM TEST")
+
+
+# In[ ]:
+
+
+seq_ts = gold["timestamp"].iloc[WINDOW_SIZE:].reset_index(drop=True)
+seq_ts = seq_ts.iloc[mask]
+
+test_start = seq_ts.iloc[int(len(seq_ts) * (1 - TEST_RATIO))]
+test_end   = seq_ts.iloc[-1]
+
+print(f"Teste: {test_start.date()} → {test_end.date()}")
+print(f"Dias no teste: {len(y_test)}")
+print(f"Dias no treino completo: {len(y_train_full)}")
+
+
+# In[ ]:
 
 
 fig, axes = plt.subplots(1, 3, figsize=(18, 5))
@@ -595,7 +740,14 @@ correlations = corr_df.corr()["target"].drop("target").sort_values(key=abs, asce
 print(correlations.head(15))
 
 
-# In[179]:
+# In[ ]:
+
+
+eval_metrics(y_slide[:val_cut], y_pred_slide_train, "LSTM TRAIN (slide)")
+eval_metrics(y_test,            y_pred_slide_test,  "LSTM TEST  (slide)")
+
+
+# In[ ]:
 
 
 print(pd.Series(y).autocorr(1))
@@ -603,7 +755,7 @@ print(pd.Series(y).autocorr(5))
 print(pd.Series(y).autocorr(20))
 
 
-# In[180]:
+# In[ ]:
 
 
 # Célula 12 — Plots
@@ -628,7 +780,14 @@ plt.tight_layout()
 plt.show()
 
 
-# In[181]:
+# In[ ]:
+
+
+eval_metrics(y_slide[:val_cut], y_pred_slide_train, "LSTM TRAIN (slide)")
+eval_metrics(y_test_eval,       y_pred_slide_test,  "LSTM TEST  (slide)")
+
+
+# In[ ]:
 
 
 # Célula 13 — Diagnóstico de correlações
@@ -638,7 +797,7 @@ correlations = corr.corr()["target"].drop("target").sort_values(key=abs, ascendi
 correlations
 
 
-# In[182]:
+# In[ ]:
 
 
 print("Período completo:", gold["timestamp"].min(), "→", gold["timestamp"].max())
@@ -648,13 +807,13 @@ print("Treino vai até ~", gold["timestamp"].iloc[int(len(gold) * 0.9)])
 print("Teste começa em ~", gold["timestamp"].iloc[int(len(gold) * 0.9)])
 
 
-# In[183]:
+# In[ ]:
 
 
 y_train_full.std(), y_test.std()
 
 
-# In[184]:
+# In[ ]:
 
 
 df = pd.DataFrame({
@@ -663,37 +822,37 @@ df = pd.DataFrame({
 df["Return"].autocorr(lag=1)
 
 
-# In[185]:
+# In[ ]:
 
 
 df["Return"].autocorr(lag=5)
 
 
-# In[186]:
+# In[ ]:
 
 
 df["Return"].autocorr(lag=10)
 
 
-# In[187]:
+# In[ ]:
 
 
 df["Return"].autocorr(lag=20)
 
 
-# In[188]:
+# In[ ]:
 
 
 y.describe()
 
 
-# In[189]:
+# In[ ]:
 
 
 print(y.std())
 
 
-# In[190]:
+# In[ ]:
 
 
 print("Pred treino std:", y_pred_train.std())
@@ -703,13 +862,13 @@ print("Real treino std:", y_train_full.std())
 print("Real teste std:", y_test.std())
 
 
-# In[191]:
+# In[ ]:
 
 
 correlations
 
 
-# In[192]:
+# In[ ]:
 
 
 for col in externos.columns:
@@ -723,7 +882,7 @@ for col in externos.columns:
             )
 
 
-# In[193]:
+# In[ ]:
 
 
 print("y_train")
@@ -733,7 +892,7 @@ print("\ny_pred")
 print(pred.mean(), pred.std())
 
 
-# In[194]:
+# In[ ]:
 
 
 from arch import arch_model
@@ -745,11 +904,6 @@ print(res.summary())
 
 # In[ ]:
 
-
-from arch import arch_model
-import numpy as np
-import pandas as pd
-from sklearn.metrics import r2_score
 
 log_ret = gold["log_return"].dropna() * 100
 
@@ -770,4 +924,13 @@ realized_vol = pd.Series(realized).rolling(5).std().shift(-5).dropna().values
 preds_aligned = np.array(preds[:len(realized_vol)])
 
 print("GARCH R² no teste:", r2_score(realized_vol, preds_aligned))
+
+
+# In[ ]:
+
+
+print("Autocorr y lag1 :", pd.Series(y).autocorr(1))
+print("Autocorr y lag5 :", pd.Series(y).autocorr(5))
+print("Autocorr y lag10:", pd.Series(y).autocorr(10))
+print("Autocorr y lag20:", pd.Series(y).autocorr(20))
 
