@@ -3,7 +3,7 @@
 
 # # Célula 1 — Imports
 
-# In[144]:
+# In[87]:
 
 
 from pathlib import Path
@@ -32,7 +32,7 @@ from arch import arch_model
 from scipy.stats import spearmanr
 
 
-# In[145]:
+# In[88]:
 
 
 def qlike(y_true, y_pred):
@@ -49,7 +49,7 @@ def eval_metrics(y_true, y_pred, label):
 
 # # Célula 2 — Constantes 
 
-# In[146]:
+# In[89]:
 
 
 START          = "2008-01-01"
@@ -71,7 +71,7 @@ tf.config.experimental.enable_op_determinism()
 
 # # Célula 3 - Requição para API do FRED
 
-# In[147]:
+# In[90]:
 
 
 def get_fred_series(series_id: str, start: str, end: str, api_key: str) -> pd.DataFrame:
@@ -100,7 +100,7 @@ print(dfii10.head())
 
 # # Células 4, 5, 6 e 7 - Carrega dataframes
 
-# In[148]:
+# In[91]:
 
 
 petrodolar = pd.read_csv(
@@ -126,7 +126,7 @@ print(petrodolar.shape)
 print(petrodolar.head())
 
 
-# In[149]:
+# In[92]:
 
 
 opec = pd.read_csv(
@@ -165,7 +165,7 @@ print("Dedolar:", dedolar.shape)
 print("SWF:", swf.shape)
 
 
-# In[150]:
+# In[93]:
 
 
 tickers = {
@@ -195,7 +195,7 @@ print(externos.shape)
 print(externos.head())
 
 
-# In[151]:
+# In[94]:
 
 
 gold      = pd.read_csv(DATA_BASE_PATH / "final_gold_data.csv",      sep=";", encoding="utf-8", parse_dates=["timestamp"])
@@ -219,7 +219,7 @@ print("Gold:", gold.shape)
 
 # # Célula 8 - Merges
 
-# In[152]:
+# In[95]:
 
 
 for df in [gold, palladium, platinum, silver, externos]:
@@ -270,7 +270,7 @@ print(gold.isna().sum()[gold.isna().sum() > 0])
 
 # # Célula 9 - Feature Engineering
 
-# In[153]:
+# In[ ]:
 
 
 gold["day_variation"]  = gold["open"] - gold["close"]
@@ -335,26 +335,12 @@ gold["vix_rank"] = (
     .rank(pct=True)
 )
 
-gold["garch_rank"] = (
-    gold["garch_vol"]
-    .rolling(252)
-    .rank(pct=True)
-)
-
-gold = gold.dropna()
-print("Shape após feature engineering:", gold.shape)
-print("NaN restantes:", gold.isna().sum().sum())
-
-
-# In[ ]:
-
-
-# Fit GARCH no treino completo e extrair volatilidade condicional
 log_ret = gold["log_return"].dropna() * 100
 garch_full = arch_model(log_ret, vol="Garch", p=1, q=1)
 res_full = garch_full.fit(disp="off")
 
 gold_aligned = gold[gold["log_return"].notna()].copy()
+
 gold_aligned["garch_vol"] = res_full.conditional_volatility.values / 100
 
 gold = gold.merge(
@@ -362,10 +348,31 @@ gold = gold.merge(
     on="timestamp", how="left"
 )
 
+gold["garch_rank"] = (
+    gold["garch_vol"]
+    .rolling(252)
+    .rank(pct=True)
+)
+
+def rolling_percentile(series, window=252):
+    return (
+        series.rolling(window)
+        .rank(pct=True)
+    )
+
+gold["vix_rank_252"] = rolling_percentile(gold["vix"])
+gold["garch_rank_252"] = rolling_percentile(gold["garch_vol"])
+gold["rv20_rank_252"] = rolling_percentile(gold["rv_20"])
+gold["dxy_rank_252"] = rolling_percentile(gold["dxy"])
+
+gold = gold.dropna()
+print("Shape após feature engineering:", gold.shape)
+print("NaN restantes:", gold.isna().sum().sum())
+
 
 # # Célula 10 - Target
 
-# In[ ]:
+# In[97]:
 
 
 TARGET = "target_vol_5d"
@@ -408,7 +415,7 @@ print("Features restantes:", list(X.columns))
 print("n_features:", n_features)
 
 
-# In[ ]:
+# In[98]:
 
 
 split_idx = int(len(gold) * (1 - TEST_RATIO))
@@ -434,7 +441,7 @@ print("  (O LSTM precisa superar esse baseline para justificar sua complexidade)
 
 # # Célula 11 - Create sequences
 
-# In[ ]:
+# In[99]:
 
 
 # Célula 7 — Sequences + split
@@ -467,22 +474,22 @@ print("Train:", X_train_full.shape, "Test:", X_test.shape)
 
 from tensorflow.keras.layers import GRU
 
-def build_model(learning_rate=0.0001):
+def build_model(learning_rate=0.001):
     model = Sequential([
         Input(shape=(WINDOW_SIZE, n_features)),
         GRU(64),
-        Dropout(0.2),
-        Dense(16, activation="relu"),
-        Dropout(0.1),
+        #Dropout(0.2),
+        Dense(32, activation="relu"),
+        #Dropout(0.1),
         Dense(1)
     ])
-    model.compile(optimizer=Adam(learning_rate), loss="huber")
+    model.compile(optimizer=Adam(learning_rate), loss="mse")
     return model
 
 
 # # Célula 13 - Normalização
 
-# In[ ]:
+# In[101]:
 
 
 x_scaler = StandardScaler()
@@ -502,7 +509,7 @@ print("y_train_scaled mean:", y_train_scaled.mean(), "std:", y_train_scaled.std(
 
 # # Célula 14 - Separação em treino e teste
 
-# In[ ]:
+# In[102]:
 
 
 tscv = TimeSeriesSplit(n_splits=5)
@@ -556,7 +563,7 @@ val_y_final = y_scaler.transform(
 
 # # Célula 15 - Treino
 
-# In[ ]:
+# In[103]:
 
 
 TRAIN_YEARS = 4
@@ -631,7 +638,7 @@ eval_metrics(y_slide[:val_cut], y_pred_slide_train, "LSTM TRAIN (slide)")
 eval_metrics(y_test_eval,       y_pred_slide_test,  "LSTM TEST  (slide)")
 
 
-# In[ ]:
+# In[104]:
 
 
 print("y_train_scaled mean:", y_train_scaled.mean())
@@ -642,7 +649,7 @@ print("NaN em y_train_scaled:", np.isnan(y_train_scaled).sum())
 print("NaN em X_train_scaled:", np.isnan(X_train_scaled).sum())
 
 
-# In[ ]:
+# In[105]:
 
 
 nan_cols = X.columns[X.isna().any()].tolist()
@@ -652,7 +659,7 @@ print(X[nan_cols].isna().sum())
 
 # # Célula 16 - Métricas
 
-# In[ ]:
+# In[106]:
 
 
 y_pred_train = y_scaler.inverse_transform(
@@ -682,7 +689,7 @@ for name, y_true, y_pred in [
     print("Correlação pred vs real:", corr)
 
 
-# In[ ]:
+# In[107]:
 
 
 y_pred_train = y_scaler.inverse_transform(
@@ -696,7 +703,7 @@ eval_metrics(y_train_full, y_pred_train, "LSTM TRAIN")
 eval_metrics(y_test,       y_pred_test,  "LSTM TEST")
 
 
-# In[ ]:
+# In[108]:
 
 
 seq_ts = gold["timestamp"].iloc[WINDOW_SIZE:].reset_index(drop=True)
@@ -710,7 +717,7 @@ print(f"Dias no teste: {len(y_test)}")
 print(f"Dias no treino completo: {len(y_train_full)}")
 
 
-# In[ ]:
+# In[109]:
 
 
 fig, axes = plt.subplots(1, 3, figsize=(18, 5))
@@ -740,14 +747,14 @@ correlations = corr_df.corr()["target"].drop("target").sort_values(key=abs, asce
 print(correlations.head(15))
 
 
-# In[ ]:
+# In[110]:
 
 
 eval_metrics(y_slide[:val_cut], y_pred_slide_train, "LSTM TRAIN (slide)")
 eval_metrics(y_test,            y_pred_slide_test,  "LSTM TEST  (slide)")
 
 
-# In[ ]:
+# In[111]:
 
 
 print(pd.Series(y).autocorr(1))
@@ -755,7 +762,7 @@ print(pd.Series(y).autocorr(5))
 print(pd.Series(y).autocorr(20))
 
 
-# In[ ]:
+# In[112]:
 
 
 # Célula 12 — Plots
@@ -780,14 +787,14 @@ plt.tight_layout()
 plt.show()
 
 
-# In[ ]:
+# In[113]:
 
 
 eval_metrics(y_slide[:val_cut], y_pred_slide_train, "LSTM TRAIN (slide)")
 eval_metrics(y_test_eval,       y_pred_slide_test,  "LSTM TEST  (slide)")
 
 
-# In[ ]:
+# In[114]:
 
 
 # Célula 13 — Diagnóstico de correlações
@@ -797,7 +804,7 @@ correlations = corr.corr()["target"].drop("target").sort_values(key=abs, ascendi
 correlations
 
 
-# In[ ]:
+# In[115]:
 
 
 print("Período completo:", gold["timestamp"].min(), "→", gold["timestamp"].max())
@@ -807,13 +814,13 @@ print("Treino vai até ~", gold["timestamp"].iloc[int(len(gold) * 0.9)])
 print("Teste começa em ~", gold["timestamp"].iloc[int(len(gold) * 0.9)])
 
 
-# In[ ]:
+# In[116]:
 
 
 y_train_full.std(), y_test.std()
 
 
-# In[ ]:
+# In[117]:
 
 
 df = pd.DataFrame({
@@ -822,37 +829,37 @@ df = pd.DataFrame({
 df["Return"].autocorr(lag=1)
 
 
-# In[ ]:
+# In[118]:
 
 
 df["Return"].autocorr(lag=5)
 
 
-# In[ ]:
+# In[119]:
 
 
 df["Return"].autocorr(lag=10)
 
 
-# In[ ]:
+# In[120]:
 
 
 df["Return"].autocorr(lag=20)
 
 
-# In[ ]:
+# In[121]:
 
 
 y.describe()
 
 
-# In[ ]:
+# In[122]:
 
 
 print(y.std())
 
 
-# In[ ]:
+# In[123]:
 
 
 print("Pred treino std:", y_pred_train.std())
@@ -862,13 +869,13 @@ print("Real treino std:", y_train_full.std())
 print("Real teste std:", y_test.std())
 
 
-# In[ ]:
+# In[124]:
 
 
 correlations
 
 
-# In[ ]:
+# In[125]:
 
 
 for col in externos.columns:
@@ -882,7 +889,7 @@ for col in externos.columns:
             )
 
 
-# In[ ]:
+# In[126]:
 
 
 print("y_train")
@@ -892,7 +899,7 @@ print("\ny_pred")
 print(pred.mean(), pred.std())
 
 
-# In[ ]:
+# In[127]:
 
 
 from arch import arch_model
@@ -902,7 +909,7 @@ res = garch.fit(disp="off")
 print(res.summary())
 
 
-# In[ ]:
+# In[128]:
 
 
 log_ret = gold["log_return"].dropna() * 100
@@ -926,11 +933,74 @@ preds_aligned = np.array(preds[:len(realized_vol)])
 print("GARCH R² no teste:", r2_score(realized_vol, preds_aligned))
 
 
-# In[ ]:
+# In[129]:
 
 
 print("Autocorr y lag1 :", pd.Series(y).autocorr(1))
 print("Autocorr y lag5 :", pd.Series(y).autocorr(5))
 print("Autocorr y lag10:", pd.Series(y).autocorr(10))
 print("Autocorr y lag20:", pd.Series(y).autocorr(20))
+
+
+# In[130]:
+
+
+for fold, (_, val_idx) in enumerate(folds):
+    y_va = y_seq[val_idx]
+
+    print(
+        fold+1,
+        y_va.mean(),
+        y_va.std(),
+        y_va.min(),
+        y_va.max()
+    )
+
+
+# In[131]:
+
+
+print(np.corrcoef(y_va, pred)[0,1])
+print(spearmanr(y_va, pred).statistic)
+
+
+# In[132]:
+
+
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import r2_score
+
+lr = LinearRegression()
+
+lr.fit(pred.reshape(-1,1), y_va)
+
+pred_cal = lr.predict(pred.reshape(-1,1))
+
+print("R² original:", r2_score(y_va, pred))
+print("R² calibrado:", r2_score(y_va, pred_cal))
+
+
+# In[134]:
+
+
+for fold, (_, val_idx) in enumerate(folds):
+    y_va = y_seq[val_idx]
+
+    print(
+        f"Fold {fold+1}",
+        "mean =", y_va.mean(),
+        "std =", y_va.std(),
+        "autocorr1 =", pd.Series(y_va).autocorr(1)
+    )
+
+
+# In[133]:
+
+
+for fold, (_, val_idx) in enumerate(folds):
+    print(
+        fold+1,
+        seq_ts.iloc[val_idx[0]],
+        seq_ts.iloc[val_idx[-1]]
+    )
 
