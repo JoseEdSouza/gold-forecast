@@ -26,4 +26,8 @@ data/
 #cache dir
 .cache/
 
+# uv lock file
 uv.lock
+
+# env files
+.env
