@@ -22,13 +22,12 @@ Decisões de projeto (resumo):
      Se o modelo não bater o baseline, ele não aprendeu nada útil.
 
 Uso:
-    python gold_cnn.py --csv gold/data/final_gold_data.csv
-    python gold_cnn.py --synthetic          # teste rápido sem o dataset
+    python experiments/price_cnn/gold_price_cnn.py --csv data/processed/final_gold_data.csv
+    python experiments/price_cnn/gold_price_cnn.py --synthetic
 """
 
 import argparse
 import os
-from glob import glob
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -44,6 +43,10 @@ tf.random.set_seed(SEED)
 LOOKBACK = 60                 # tamanho da janela deslizante (dias)
 HORIZONS = [5, 15, 30]        # horizontes de predição
 GAP = max(HORIZONS)           # gap entre splits p/ evitar vazamento
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_CSV = REPO_ROOT / "data" / "processed" / "final_gold_data.csv"
+ARTIFACTS_DIR = REPO_ROOT / "data" / "artifacts"
+MODELS_DIR = REPO_ROOT / "models"
 
 
 # ----------------------------------------------------------------------------
@@ -245,13 +248,14 @@ def evaluate(model, X, Y, prices, y_scaler, label=""):
 # 6. PIPELINE PRINCIPAL
 # ----------------------------------------------------------------------------
 def main():
-    # Detecta se o CSV padrão existe localmente
-    default_csv = "gold/data/final_gold_data.csv"
-    if not os.path.exists(default_csv):
-        default_csv = None
+    default_csv = DEFAULT_CSV if DEFAULT_CSV.exists() else None
 
     ap = argparse.ArgumentParser()
-    ap.add_argument("--csv", default=default_csv, help="caminho do final_gold_data.csv")
+    ap.add_argument(
+        "--csv",
+        default=str(default_csv) if default_csv else None,
+        help="caminho do final_gold_data.csv",
+    )
     ap.add_argument("--synthetic", action="store_true", help="usar dados sintéticos")
     ap.add_argument("--epochs", type=int, default=120)
     args = ap.parse_args()
@@ -311,9 +315,13 @@ def main():
     for j, h in enumerate(HORIZONS):
         res[f"pred_price_t+{h}"] = Pte * np.exp(preds[:, j])
         res[f"true_price_t+{h}"] = Pte * np.exp(Yte[:, j])
-    res.to_csv("predicoes_teste.csv", index=False)
-    model.save("gold_cnn.keras")
-    print("\n[ok] salvos: gold_cnn.keras, predicoes_teste.csv")
+    ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    pred_path = ARTIFACTS_DIR / "predicoes_teste.csv"
+    model_path = MODELS_DIR / "gold_price_cnn.keras"
+    res.to_csv(pred_path, index=False)
+    model.save(model_path)
+    print(f"\n[ok] salvos: {model_path}, {pred_path}")
 
 
 if __name__ == "__main__":

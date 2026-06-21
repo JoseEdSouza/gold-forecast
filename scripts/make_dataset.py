@@ -11,10 +11,14 @@ Uso:
 """
 
 import argparse
+from pathlib import Path
 import numpy as np
 import pandas as pd
 
 HORIZONS = [5, 15, 30]
+REPO_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_INPUT = REPO_ROOT / "data" / "processed" / "final_gold_data.csv"
+DEFAULT_OUTPUT = REPO_ROOT / "data" / "processed" / "gold_features.csv"
 
 # ---------------------------------------------------------------------------
 # Carregamento
@@ -124,8 +128,8 @@ def build_targets(df: pd.DataFrame) -> pd.DataFrame:
 
 def main():
     parser = argparse.ArgumentParser(description="Gera dataset de features para o ouro")
-    parser.add_argument("--input", default="./data/final_gold_data.csv")
-    parser.add_argument("--output", default="./data/gold_features.csv")
+    parser.add_argument("--input", default=str(DEFAULT_INPUT))
+    parser.add_argument("--output", default=str(DEFAULT_OUTPUT))
     args = parser.parse_args()
 
     print(f"Lendo {args.input} ...")

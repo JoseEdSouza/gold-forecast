@@ -30,6 +30,7 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from pathlib import Path
 from sklearn.preprocessing import RobustScaler
 import tensorflow as tf
 from tensorflow.keras import layers, Model, callbacks
@@ -42,7 +43,8 @@ plt.rcParams.update(
 )
 DARK, RED, BLUE = "#1a1a2e", "#e94560", "#0f3460"
 
-CSV_PATH = "./data/final_gold_data.csv"  # <-- ajuste aqui
+REPO_ROOT = Path(__file__).resolve().parents[2]
+CSV_PATH = REPO_ROOT / "data" / "processed" / "final_gold_data.csv"
 LOOKBACK = 60  # tamanho da janela deslizante (dias)
 HORIZONS = [5, 15, 30]  # horizontes de predição
 GAP = max(HORIZONS)  # gap entre splits (anti-vazamento)

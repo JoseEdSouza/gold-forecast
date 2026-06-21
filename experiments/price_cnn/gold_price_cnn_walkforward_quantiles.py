@@ -23,10 +23,12 @@ Evoluções sobre gold_cnn.py (que continua sendo a base de features/janelas):
          de calibração do modelo.
 
 Uso:
-    python gold_cnn_v2.py --csv gold/data/final_gold_data.csv
+    python experiments/price_cnn/gold_price_cnn_walkforward_quantiles.py --csv data/processed/final_gold_data.csv
 """
 
 import argparse
+from pathlib import Path
+import sys
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import RobustScaler
@@ -34,9 +36,21 @@ from sklearn.preprocessing import RobustScaler
 import tensorflow as tf
 from tensorflow.keras import layers, Model, callbacks
 
+THIS_DIR = Path(__file__).resolve().parent
+if str(THIS_DIR) not in sys.path:
+    sys.path.insert(0, str(THIS_DIR))
+
 # Reaproveita carregamento, features, alvos e janelas da v1
-from gold_cnn import (load_data, build_features, build_targets,
-                      make_windows, HORIZONS, LOOKBACK, GAP, SEED)
+from gold_price_cnn import (
+    GAP,
+    HORIZONS,
+    LOOKBACK,
+    SEED,
+    build_features,
+    build_targets,
+    load_data,
+    make_windows,
+)
 
 np.random.seed(SEED)
 tf.random.set_seed(SEED)
@@ -45,6 +59,9 @@ QUANTILES = [0.10, 0.50, 0.90]
 FOLD_LEN = 252          # ~1 ano de pregões por fold de teste
 INITIAL_TRAIN = 0.55    # primeiro treino usa 55% da série (~2000 -> ~2014)
 EMBARGO = GAP + LOOKBACK
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_CSV = REPO_ROOT / "data" / "processed" / "final_gold_data.csv"
+ARTIFACTS_DIR = REPO_ROOT / "data" / "artifacts"
 
 
 # ----------------------------------------------------------------------------
@@ -182,13 +199,14 @@ def report(res: pd.DataFrame):
 
 
 def main():
-    import os
-    default_csv = "gold/data/final_gold_data.csv"
-    if not os.path.exists(default_csv):
-        default_csv = None
+    default_csv = DEFAULT_CSV if DEFAULT_CSV.exists() else None
 
     ap = argparse.ArgumentParser()
-    ap.add_argument("--csv", default=default_csv, help="caminho do final_gold_data.csv")
+    ap.add_argument(
+        "--csv",
+        default=str(default_csv) if default_csv else None,
+        help="caminho do final_gold_data.csv",
+    )
     ap.add_argument("--epochs", type=int, default=40)
     ap.add_argument("--folds", default="1-99", help="ex.: 1-4")
     ap.add_argument("--report-only", action="store_true")
@@ -208,28 +226,29 @@ def main():
     print(f"[features] {len(feature_cols)}")
 
     if args.report_only:
-        import glob
-        res = pd.concat([pd.read_csv(f) for f in sorted(glob.glob("predicoes_folds_*.csv"))],
-                        ignore_index=True).sort_values("date")
-        res.to_csv("predicoes_walkforward.csv", index=False)
+        csv_files = sorted(ARTIFACTS_DIR.glob("predicoes_folds_*.csv"))
+        res = pd.concat([pd.read_csv(f) for f in csv_files], ignore_index=True).sort_values("date")
+        out_path = ARTIFACTS_DIR / "predicoes_walkforward.csv"
+        res.to_csv(out_path, index=False)
         report(res)
-        print("\n[ok] salvo: predicoes_walkforward.csv")
+        print(f"\n[ok] salvo: {out_path}")
         return
 
     f0, f1 = map(int, args.folds.split("-"))
     res = walk_forward(df, feature_cols, epochs=args.epochs, fold_start=f0, fold_end=f1)
-    out = f"predicoes_folds_{f0:02d}_{f1:02d}.csv"
+    ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+    out = ARTIFACTS_DIR / f"predicoes_folds_{f0:02d}_{f1:02d}.csv"
     res.to_csv(out, index=False)
     
     # Se rodou todos os folds disponíveis, opcionalmente já gera o report consolidado
-    import glob
-    csv_files = sorted(glob.glob("predicoes_folds_*.csv"))
+    csv_files = sorted(ARTIFACTS_DIR.glob("predicoes_folds_*.csv"))
     if csv_files:
         try:
             res_all = pd.concat([pd.read_csv(f) for f in csv_files], ignore_index=True).sort_values("date")
-            res_all.to_csv("predicoes_walkforward.csv", index=False)
+            report_path = ARTIFACTS_DIR / "predicoes_walkforward.csv"
+            res_all.to_csv(report_path, index=False)
             report(res_all)
-            print("\n[ok] Relatório geral salvo em predicoes_walkforward.csv")
+            print(f"\n[ok] Relatório geral salvo em {report_path}")
         except Exception as e:
             print(f"Nota: Não foi possível consolidar todos os folds ainda: {e}")
             report(res)

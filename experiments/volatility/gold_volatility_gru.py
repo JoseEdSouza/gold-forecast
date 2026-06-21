@@ -61,7 +61,8 @@ VOL_WINDOW     = 10    # era 21
 VOL_SHIFT      = -5   # era -21
  
 FRED_API_KEY   = "a75bdc9f7da239a5e3d6c8e389345bfb"
-DATA_BASE_PATH = Path("./data")
+REPO_ROOT      = Path(__file__).resolve().parents[2]
+DATA_BASE_PATH = REPO_ROOT / "data" / "processed"
  
 np.random.seed(SEED)
 random.seed(SEED)
@@ -1003,4 +1004,3 @@ for fold, (_, val_idx) in enumerate(folds):
         seq_ts.iloc[val_idx[0]],
         seq_ts.iloc[val_idx[-1]]
     )
-
