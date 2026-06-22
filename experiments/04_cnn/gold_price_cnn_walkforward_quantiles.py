@@ -23,7 +23,7 @@ Evoluções sobre gold_cnn.py (que continua sendo a base de features/janelas):
          de calibração do modelo.
 
 Uso:
-    python experiments/price_cnn/gold_price_cnn_walkforward_quantiles.py --csv data/processed/final_gold_data.csv
+    python experiments/04_cnn/gold_price_cnn_walkforward_quantiles.py --csv data/processed/final_gold_data.csv
 """
 
 import argparse
@@ -56,7 +56,7 @@ INITIAL_TRAIN = 0.55  # primeiro treino usa 55% da série (~2000 -> ~2014)
 EMBARGO = GAP + LOOKBACK
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CSV = REPO_ROOT / "data" / "processed" / "final_gold_data.csv"
-ARTIFACTS_DIR = REPO_ROOT / "data" / "artifacts"
+ARTIFACTS_DIR = REPO_ROOT / "outputs" / "04_cnn"
 
 
 # ----------------------------------------------------------------------------

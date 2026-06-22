@@ -44,8 +44,8 @@ HORIZONS = [5, 15, 30]  # horizontes de predição
 GAP = max(HORIZONS)  # gap entre splits p/ evitar vazamento
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CSV = REPO_ROOT / "data" / "processed" / "final_gold_data.csv"
-ARTIFACTS_DIR = REPO_ROOT / "data" / "artifacts"
-MODELS_DIR = REPO_ROOT / "models"
+ARTIFACTS_DIR = REPO_ROOT / "outputs" / "04_cnn"
+MODELS_DIR = REPO_ROOT / "outputs" / "04_cnn"
 
 
 # ----------------------------------------------------------------------------

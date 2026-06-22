@@ -29,7 +29,7 @@ log = logging.getLogger(__name__)
 SEED = 42
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GOLD_DATA_PATH = REPO_ROOT / "data" / "processed" / "final_gold_data.csv"
-OUTPUT_DIR = REPO_ROOT / "data" / "artifacts" / "baseline"
+OUTPUT_DIR = REPO_ROOT / "outputs" / "01_baseline"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 RAMDOM_SEED = 42

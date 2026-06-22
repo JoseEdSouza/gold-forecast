@@ -26,7 +26,7 @@ import xgboost as xgb
 from xgboost.core import XGBoostError
 from xgboost import XGBRegressor
 
-from lib import (
+from src import (
     make_windows,
     per_year_metrics,
     plot_predicted_vs_actual,
@@ -67,8 +67,7 @@ TRAIN_RATIO = 0.70
 VAL_RATIO = 0.15
 
 CSV_PATH = REPO_ROOT / "data" / "processed" / "gold_features.csv"
-EXPERIMENT_DIR = Path(__file__).resolve().parent
-ARTIFACTS_DIR = EXPERIMENT_DIR / "artifacts" / "gold_price_xgboost_cv_bayes"
+ARTIFACTS_DIR = REPO_ROOT / "outputs" / "02_xgboost"
 
 np.random.seed(SEED)
 plt.rcParams.update(

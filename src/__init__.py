@@ -1,6 +1,6 @@
-"""lib — módulos reutilizáveis de dados, métricas e plotagem para experimentos de forecasting."""
+"""src — módulos reutilizáveis de dados, métricas e plotagem para experimentos de forecasting."""
 
-from lib.data import (
+from src.data import (
     WindowedSplit,
     ScaledSplits,
     make_windows,
@@ -9,8 +9,8 @@ from lib.data import (
     fit_and_scale,
     inverse_predict,
 )
-from lib.metrics import regression_metrics, per_year_metrics
-from lib.plotting import (
+from src.metrics import regression_metrics, per_year_metrics
+from src.plotting import (
     plot_price_series,
     plot_split_regions,
     plot_learning_curves,

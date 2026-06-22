@@ -20,7 +20,7 @@ import tensorflow as tf
 from tensorflow.keras import Model, callbacks, layers
 
 
-from lib import (
+from src import (
     fit_and_scale,
     inverse_predict,
     per_year_metrics,
@@ -50,8 +50,8 @@ BATCH_SIZE = 64
 SHOW_PLOTS = True
 
 CSV_PATH = REPO_ROOT / "data" / "processed" / "gold_features.csv"
-ARTIFACTS_DIR = REPO_ROOT / "data" / "artifacts" / "gold_price_gru"
-MODELS_DIR = REPO_ROOT / "models"
+ARTIFACTS_DIR = REPO_ROOT / "outputs" / "03_gru"
+MODELS_DIR = REPO_ROOT / "outputs" / "03_gru"
 
 np.random.seed(SEED)
 tf.random.set_seed(SEED)
