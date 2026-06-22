@@ -31,3 +31,6 @@ uv.lock
 
 # env files
 .env
+
+# tuner files
+**/tuner
