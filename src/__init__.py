@@ -13,6 +13,7 @@ from src.data import (
     fit_and_scale,
     inverse_predict,
 )
+from src.gpu import setup_gpu, configure_gpu_memory_growth
 from src.metrics import regression_metrics, per_year_metrics
 from src.plotting import (
     plot_price_series,
@@ -29,6 +30,9 @@ __all__ = [
     # paths
     "ROOT_DIR",
     "resolve_relative_path",
+    # gpu
+    "setup_gpu",
+    "configure_gpu_memory_growth",
     # data
     "WindowedSplit",
     "ScaledSplits",
@@ -72,4 +76,3 @@ def resolve_relative_path(relative_path: str) -> Path:
     caller_frame = inspect.stack()[1]
     caller_file = caller_frame.frame.f_globals["__file__"]
     return Path(caller_file).parent.joinpath(relative_path).resolve().absolute()
-

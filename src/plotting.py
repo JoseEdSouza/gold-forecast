@@ -211,6 +211,7 @@ def plot_predicted_vs_actual(
     ylabel: str = "Preço (US$/oz)",
     palette: dict[str, str] | None = None,
     figsize: tuple[float, float] = (13, 10),
+    model_name: str | None = None,
 ) -> plt.Figure:
     """Plota o preço real e previsto ao longo do tempo para cada horizonte.
 
@@ -234,6 +235,8 @@ def plot_predicted_vs_actual(
         Sobrescreve cores do tema.
     figsize:
         Tamanho da figura.
+    model_name:
+        Nome do modelo exibido no título de cada subplot (ex: ``"LSTM"``).
     """
     pal = _palette(palette)
     H = len(horizons)
@@ -241,6 +244,7 @@ def plot_predicted_vs_actual(
     if H == 1:
         axes = [axes]
 
+    prefix = f"{model_name} — " if model_name else ""
     for ax, j, h in zip(axes, range(H), horizons):
         ax.plot(
             dates,
@@ -257,7 +261,7 @@ def plot_predicted_vs_actual(
             alpha=0.85,
             label="previsto",
         )
-        ax.set_title(f"Horizonte {h} dias — preço em t+{h}")
+        ax.set_title(f"{prefix}Horizonte {h} dias — preço em t+{h}")
         ax.set_ylabel(ylabel)
         ax.legend(loc="upper left")
 
