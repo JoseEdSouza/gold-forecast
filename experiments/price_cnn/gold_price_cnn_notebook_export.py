@@ -2,14 +2,14 @@
 # coding: utf-8
 
 # # Predição do preço do ouro com CNN 1D
-# 
+#
 # **Horizontes:** 5, 15 e 30 dias &nbsp;|&nbsp; **Dataset:** `final_gold_data.csv` (metais preciosos desde 2000, com manchetes)
-# 
+#
 # Este notebook treina uma rede convolucional 1D para prever o preço do ouro e **visualiza o desempenho** em conjuntos separados de treino, validação e teste.
-# 
+#
 # ### Ideia central
 # Não prevemos o **preço** (foi de ~US\$280 em 2000 a ~US\$3.000 em 2025 — um modelo treinado em preço nunca veria os níveis do teste). Prevemos o **log-retorno acumulado** `log(P[t+h]/P[t])`, que é quase estacionário, e reconstruímos o preço com `P·exp(r)`.
-# 
+#
 # ### Roteiro
 # 1. Setup e carregamento
 # 2. Engenharia de features (relativas) e alvos
@@ -21,7 +21,7 @@
 # 8. **Gráficos de desempenho** (previsto×real, dispersão, erro por ano, resíduos)
 
 # ## 1. Setup e carregamento
-# 
+#
 # Ajuste `CSV_PATH` para o caminho do seu arquivo. As constantes controlam a janela (`LOOKBACK`), os horizontes e o `GAP` entre os conjuntos (evita que janelas vizinhas vazem informação do futuro).
 
 # In[20]:
@@ -93,7 +93,7 @@ plt.show()
 
 
 # ## 2. Engenharia de features e alvos
-# 
+#
 # Todas as features são **relativas** (retornos, razões, osciladores) — nunca preço bruto — para generalizar entre níveis. Inclui um índice de "medo" extraído das manchetes por léxico, já que o ouro reage a estresse geopolítico.
 
 # In[23]:
@@ -164,7 +164,7 @@ print(feature_cols)
 
 
 # ## 3. Janela deslizante + split temporal
-# 
+#
 # Cada amostra é uma matriz `60 dias × N features`. O split é **cronológico** (nunca embaralhado) com um **gap** de `LOOKBACK + 30` dias entre os conjuntos: sem isso, janelas vizinhas compartilhariam dias e vazariam o futuro para o teste.
 
 # In[24]:
@@ -226,7 +226,7 @@ plt.show()
 
 
 # ## 4. Escalonamento robusto a outliers
-# 
+#
 # `RobustScaler` usa **mediana/IQR** (não média/desvio), então as caudas pesadas das crises não distorcem a normalização. Ajustado **só no treino** (anti-vazamento) e seguido de um *clip* em ±8, que limita a influência de dias de pânico sem removê-los.
 
 # In[26]:
@@ -258,7 +258,7 @@ print("escala aplicada — treino X:", X["treino"].shape)
 
 
 # ## 5. Modelo CNN 1D causal
-# 
+#
 # Convoluções **causais** (não olham o futuro dentro da janela) com **dilatação** 1→2→4 cobrem os 60 dias com poucas camadas. O *pooling* duplo (média + máximo) captura tendência **e** choques. Uma única rede com **três cabeças** prevê os três horizontes, compartilhando representação. Perda **Huber** = robusta a outliers.
 
 # In[27]:
@@ -293,7 +293,7 @@ model.summary()
 
 
 # ## 6. Treino e curvas de aprendizado
-# 
+#
 # `EarlyStopping` restaura os melhores pesos; `ReduceLROnPlateau` corta a taxa de aprendizado quando a validação estaciona.
 
 # In[28]:
@@ -338,7 +338,7 @@ plt.show()
 
 
 # ## 7. Avaliação: treino / val / teste vs. baseline
-# 
+#
 # Reconstruímos o **preço** a partir do retorno previsto e comparamos com o **random walk** (prever que o preço não muda). Se `MAE/naive < 1`, o modelo agrega valor. Também medimos a **acurácia direcional** (acertou se sobe ou desce).
 
 # In[30]:
@@ -393,7 +393,7 @@ print("\nMAE/naive < 1 => melhor que o baseline | DirAcc > 50% => acerta direç�
 
 
 # ## 8. Gráficos de desempenho
-# 
+#
 # ### 8.1 Previsto × Real no conjunto de teste
 # A linha vermelha (previsto) acompanha a preta (real). O modelo tende a ser **conservador** nos extremos — consequência da perda robusta.
 
@@ -496,10 +496,10 @@ plt.show()
 
 
 # ## Conclusão
-# 
+#
 # - O alvo em **log-retorno** + features relativas resolve a não-estacionariedade do preço.
 # - O **split temporal com gap** e o `RobustScaler` ajustado só no treino evitam vazamento e domesticam outliers de crise.
 # - O modelo **bate o baseline** nos três horizontes no teste, com acurácia direcional crescente no horizonte — mas o desempenho **depende do regime** (forte em tendência, neutro em mercado lateral), como mostram os gráficos por ano.
 # - Expectativa realista: acurácia direcional na casa dos 55% é um bom resultado para preço de ouro; números muito acima disso costumam indicar vazamento.
-# 
+#
 # **Próximos passos:** walk-forward com retreino periódico, predição por quantis (bandas de incerteza) e features exógenas (DXY, juro real, prata). Para uso real, isto é material de estudo e gestão de risco — não recomendação de investimento.

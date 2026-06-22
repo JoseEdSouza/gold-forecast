@@ -27,7 +27,6 @@ Uso:
 """
 
 import argparse
-import os
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -40,9 +39,9 @@ SEED = 42
 np.random.seed(SEED)
 tf.random.set_seed(SEED)
 
-LOOKBACK = 60                 # tamanho da janela deslizante (dias)
-HORIZONS = [5, 15, 30]        # horizontes de predição
-GAP = max(HORIZONS)           # gap entre splits p/ evitar vazamento
+LOOKBACK = 60  # tamanho da janela deslizante (dias)
+HORIZONS = [5, 15, 30]  # horizontes de predição
+GAP = max(HORIZONS)  # gap entre splits p/ evitar vazamento
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CSV = REPO_ROOT / "data" / "processed" / "final_gold_data.csv"
 ARTIFACTS_DIR = REPO_ROOT / "data" / "artifacts"
@@ -66,8 +65,15 @@ def load_data(csv_path: str) -> pd.DataFrame:
 
     # Detecta coluna de preço (close/price/gold...)
     candidates = ["close", "price", "gold", "adj close", "adj_close", "value"]
-    price_col = next((c for c in df.columns
-                      for cand in candidates if cand in c and df[c].dtype != object), None)
+    price_col = next(
+        (
+            c
+            for c in df.columns
+            for cand in candidates
+            if cand in c and df[c].dtype != object
+        ),
+        None,
+    )
     if price_col is None:
         raise ValueError(f"Coluna de preço não encontrada. Colunas: {list(df.columns)}")
     df = df.rename(columns={price_col: "close"})
@@ -75,7 +81,9 @@ def load_data(csv_path: str) -> pd.DataFrame:
     # Mantém OHLC/volume extras se existirem
     df["close"] = pd.to_numeric(df["close"], errors="coerce")
     df = df.dropna(subset=["close"]).reset_index(drop=True)
-    print(f"[load] {len(df)} linhas | {df['date'].min().date()} -> {df['date'].max().date()}")
+    print(
+        f"[load] {len(df)} linhas | {df['date'].min().date()} -> {df['date'].max().date()}"
+    )
     return df
 
 
@@ -83,8 +91,8 @@ def make_synthetic(n=6000) -> pd.DataFrame:
     """Série sintética com regimes/choques (imita 2008 e 2020) p/ smoke test."""
     rng = np.random.default_rng(SEED)
     ret = rng.normal(0.0003, 0.009, n)
-    ret[2000:2120] += rng.normal(0.002, 0.03, 120)    # "crise" 1: volatilidade extrema
-    ret[4500:4560] += rng.normal(0.004, 0.025, 60)    # "crise" 2
+    ret[2000:2120] += rng.normal(0.002, 0.03, 120)  # "crise" 1: volatilidade extrema
+    ret[4500:4560] += rng.normal(0.004, 0.025, 60)  # "crise" 2
     price = 280 * np.exp(np.cumsum(ret))
     dates = pd.bdate_range("2000-01-03", periods=n)
     return pd.DataFrame({"date": dates, "close": price})
@@ -99,25 +107,27 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     c = out["close"]
 
-    out["log_ret_1"] = np.log(c / c.shift(1))                      # retorno diário
-    out["log_ret_5"] = np.log(c / c.shift(5))                      # momentum semanal
-    out["log_ret_21"] = np.log(c / c.shift(21))                    # momentum mensal
+    out["log_ret_1"] = np.log(c / c.shift(1))  # retorno diário
+    out["log_ret_5"] = np.log(c / c.shift(5))  # momentum semanal
+    out["log_ret_21"] = np.log(c / c.shift(21))  # momentum mensal
 
-    out["vol_5"] = out["log_ret_1"].rolling(5).std()               # volatilidade curta
-    out["vol_21"] = out["log_ret_1"].rolling(21).std()             # volatilidade mensal
-    out["vol_ratio"] = out["vol_5"] / (out["vol_21"] + 1e-9)       # regime de vol (>1 = estresse)
+    out["vol_5"] = out["log_ret_1"].rolling(5).std()  # volatilidade curta
+    out["vol_21"] = out["log_ret_1"].rolling(21).std()  # volatilidade mensal
+    out["vol_ratio"] = out["vol_5"] / (
+        out["vol_21"] + 1e-9
+    )  # regime de vol (>1 = estresse)
 
     ma20, ma50 = c.rolling(20).mean(), c.rolling(50).mean()
-    out["dist_ma20"] = c / ma20 - 1.0                              # distância da média 20d
+    out["dist_ma20"] = c / ma20 - 1.0  # distância da média 20d
     out["dist_ma50"] = c / ma50 - 1.0
-    out["ma_cross"] = ma20 / ma50 - 1.0                            # tendência
+    out["ma_cross"] = ma20 / ma50 - 1.0  # tendência
 
     # RSI 14
     delta = c.diff()
     gain = delta.clip(lower=0).rolling(14).mean()
     loss = (-delta.clip(upper=0)).rolling(14).mean()
     out["rsi"] = 100 - 100 / (1 + gain / (loss + 1e-9))
-    out["rsi"] = (out["rsi"] - 50) / 50                            # centrado em 0
+    out["rsi"] = (out["rsi"] - 50) / 50  # centrado em 0
 
     # MACD (normalizado pelo preço p/ ser comparável em 2000 e 2025)
     ema12 = c.ewm(span=12, adjust=False).mean()
@@ -168,10 +178,13 @@ def make_windows(df, feature_cols, start, end):
     for t in range(max(start, LOOKBACK - 1), end):
         if np.isnan(ys[t]).any():
             continue
-        win = feats[t - LOOKBACK + 1: t + 1]
+        win = feats[t - LOOKBACK + 1 : t + 1]
         if np.isnan(win).any():
             continue
-        X.append(win); Y.append(ys[t]); P.append(closes[t]); IDX.append(t)
+        X.append(win)
+        Y.append(ys[t])
+        P.append(closes[t])
+        IDX.append(t)
     return np.array(X, np.float32), np.array(Y, np.float32), np.array(P), np.array(IDX)
 
 
@@ -197,8 +210,9 @@ def build_model(n_features: int) -> Model:
     x = layers.SpatialDropout1D(0.15)(x)
 
     # Pooling duplo: média (tendência) + máximo (eventos extremos/choques)
-    x = layers.Concatenate()([layers.GlobalAveragePooling1D()(x),
-                              layers.GlobalMaxPooling1D()(x)])
+    x = layers.Concatenate()(
+        [layers.GlobalAveragePooling1D()(x), layers.GlobalMaxPooling1D()(x)]
+    )
     x = layers.Dense(64, activation="relu")(x)
     x = layers.Dropout(0.25)(x)
 
@@ -220,16 +234,16 @@ def build_model(n_features: int) -> Model:
 # ----------------------------------------------------------------------------
 def evaluate(model, X, Y, prices, y_scaler, label=""):
     preds = model.predict(X, verbose=0)
-    preds = np.hstack(preds)                       # (n, 3) retornos escalonados
-    preds = y_scaler.inverse_transform(preds)      # volta a log-retornos reais
+    preds = np.hstack(preds)  # (n, 3) retornos escalonados
+    preds = y_scaler.inverse_transform(preds)  # volta a log-retornos reais
 
     print(f"\n===== {label} =====")
     rows = []
     for j, j_h in enumerate(HORIZONS):
         y_true_ret, y_pred_ret = Y[:, j], preds[:, j]
-        p_true = prices * np.exp(y_true_ret)       # preço real em t+h
-        p_pred = prices * np.exp(y_pred_ret)       # preço previsto em t+h
-        p_naive = prices                            # baseline: preço não muda
+        p_true = prices * np.exp(y_true_ret)  # preço real em t+h
+        p_pred = prices * np.exp(y_pred_ret)  # preço previsto em t+h
+        p_naive = prices  # baseline: preço não muda
 
         mae = np.mean(np.abs(p_true - p_pred))
         mae_naive = np.mean(np.abs(p_true - p_naive))
@@ -238,9 +252,11 @@ def evaluate(model, X, Y, prices, y_scaler, label=""):
         dir_acc = np.mean(np.sign(y_pred_ret) == np.sign(y_true_ret)) * 100
 
         rows.append((j_h, mae, rmse, mape, dir_acc, mae / mae_naive))
-        print(f"h={j_h:>2}d | MAE ${mae:8.2f} | RMSE ${rmse:8.2f} | MAPE {mape:5.2f}% "
-              f"| Dir.Acc {dir_acc:5.1f}% | MAE/naive {mae/mae_naive:.3f} "
-              f"{'(MELHOR que baseline)' if mae < mae_naive else '(pior que baseline)'}")
+        print(
+            f"h={j_h:>2}d | MAE ${mae:8.2f} | RMSE ${rmse:8.2f} | MAPE {mape:5.2f}% "
+            f"| Dir.Acc {dir_acc:5.1f}% | MAE/naive {mae / mae_naive:.3f} "
+            f"{'(MELHOR que baseline)' if mae < mae_naive else '(pior que baseline)'}"
+        )
     return rows, preds
 
 
@@ -265,15 +281,20 @@ def main():
     df = build_features(df)
     df = build_targets(df)
 
-    feature_cols = [c for c in df.columns
-                    if c not in {"date", "close", "open", "high", "low"}
-                    and not c.startswith("y_")
-                    and pd.api.types.is_numeric_dtype(df[c])]
+    feature_cols = [
+        c
+        for c in df.columns
+        if c not in {"date", "close", "open", "high", "low"}
+        and not c.startswith("y_")
+        and pd.api.types.is_numeric_dtype(df[c])
+    ]
     print(f"[features] {len(feature_cols)}: {feature_cols}")
 
     n = len(df)
     (tr0, tr1), (va0, va1), (te0, te1) = temporal_split(n)
-    print(f"[split] treino [0:{tr1}] | val [{va0}:{va1}] | teste [{te0}:{n}] (gap={GAP+LOOKBACK})")
+    print(
+        f"[split] treino [0:{tr1}] | val [{va0}:{va1}] | teste [{te0}:{n}] (gap={GAP + LOOKBACK})"
+    )
 
     Xtr, Ytr, Ptr, _ = make_windows(df, feature_cols, tr0, tr1)
     Xva, Yva, Pva, _ = make_windows(df, feature_cols, va0, va1)
@@ -283,7 +304,10 @@ def main():
     # --- Escalonamento robusto: fit SÓ no treino (anti-vazamento, anti-outlier)
     nf = Xtr.shape[2]
     x_scaler = RobustScaler().fit(Xtr.reshape(-1, nf))
-    scale_x = lambda X: x_scaler.transform(X.reshape(-1, nf)).reshape(X.shape).astype(np.float32)
+    def scale_x(X):
+        return (
+            x_scaler.transform(X.reshape(-1, nf)).reshape(X.shape).astype(np.float32)
+        )
     Xtr, Xva, Xte = scale_x(Xtr), scale_x(Xva), scale_x(Xte)
     # clip pós-escala: limita a influência de dias de pânico sem removê-los
     Xtr, Xva, Xte = (np.clip(a, -8, 8) for a in (Xtr, Xva, Xte))
@@ -292,20 +316,29 @@ def main():
     Ytr_s = y_scaler.transform(Ytr).astype(np.float32)
     Yva_s = y_scaler.transform(Yva).astype(np.float32)
 
-    to_dict = lambda Y: {f"h{h}": Y[:, j] for j, h in enumerate(HORIZONS)}
+    def to_dict(Y):
+        return {f"h{h}": Y[:, j] for j, h in enumerate(HORIZONS)}
 
     model = build_model(nf)
     model.summary()
 
     cbs = [
-        callbacks.EarlyStopping(monitor="val_loss", patience=15,
-                                restore_best_weights=True),
-        callbacks.ReduceLROnPlateau(monitor="val_loss", factor=0.5,
-                                    patience=6, min_lr=1e-5),
+        callbacks.EarlyStopping(
+            monitor="val_loss", patience=15, restore_best_weights=True
+        ),
+        callbacks.ReduceLROnPlateau(
+            monitor="val_loss", factor=0.5, patience=6, min_lr=1e-5
+        ),
     ]
-    model.fit(Xtr, to_dict(Ytr_s),
-              validation_data=(Xva, to_dict(Yva_s)),
-              epochs=args.epochs, batch_size=64, callbacks=cbs, verbose=2)
+    model.fit(
+        Xtr,
+        to_dict(Ytr_s),
+        validation_data=(Xva, to_dict(Yva_s)),
+        epochs=args.epochs,
+        batch_size=64,
+        callbacks=cbs,
+        verbose=2,
+    )
 
     evaluate(model, Xva, Yva, Pva, y_scaler, "VALIDAÇÃO")
     rows, preds = evaluate(model, Xte, Yte, Pte, y_scaler, "TESTE")
