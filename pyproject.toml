@@ -32,4 +32,6 @@ dependencies = [
     "xgboost>=3.3.0",
     "scikit-optimize>=0.10.2",
     "keras>=3.14.1",
+    "keras-tuner>=1.4.8",
+    "tensorboard>=2.20.0",
 ]
