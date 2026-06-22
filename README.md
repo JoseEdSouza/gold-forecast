@@ -22,6 +22,7 @@ Repositório reorganizado para separar dados, experimentos, artefatos e modelos.
 
 ## Experimentos
 
+- Baseline: [experiments/baseline/README.md](/home/jose_edsouza/Documentos/Faculdade/Mestrado/ML/Trabalhos/repo/gold-forecast/experiments/baseline/README.md)
 - Preço: [experiments/price_cnn/README.md](/home/jose_edsouza/Documentos/Faculdade/Mestrado/ML/Trabalhos/repo/gold-forecast/experiments/price_cnn/README.md)
 - Volatilidade: [experiments/volatility/README.md](/home/jose_edsouza/Documentos/Faculdade/Mestrado/ML/Trabalhos/repo/gold-forecast/experiments/volatility/README.md)
 - Dados: [data/README.md](/home/jose_edsouza/Documentos/Faculdade/Mestrado/ML/Trabalhos/repo/gold-forecast/data/README.md)

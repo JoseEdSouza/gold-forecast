@@ -2,7 +2,6 @@
 from statsmodels.tsa.stattools import adfuller
 import numpy as np
 from pathlib import Path
-import os 
 import pandas as pd
 import matplotlib.pyplot as plt
 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
@@ -30,9 +29,10 @@ log = logging.getLogger(__name__)
 
 #%% hiperparâmetros
 SEED = 42
-GOLD_DATA_PATH = "final_gold_data.csv"
-OUTPUT_DIR = Path("output_analisefinal")
-OUTPUT_DIR.mkdir(exist_ok=True)
+REPO_ROOT = Path(__file__).resolve().parents[2]
+GOLD_DATA_PATH = REPO_ROOT / "data" / "processed" / "final_gold_data.csv"
+OUTPUT_DIR = REPO_ROOT / "data" / "artifacts" / "baseline"
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 RAMDOM_SEED= 42
 WINDOW_SIZE_MIN = 10  # Valor mínimo/fallback; será ajustado com base em lags significativos da PACF
@@ -57,11 +57,7 @@ except ImportError:
 # %% carregar os dados
 log.info("Carregaod os dados")
 
-""" GOLD_DATA_PATH = Path(
-    os.environ.get("GOLD_DATA_PATH", "../data/final_gold_data.csv")
-) """
-
-df = pd.read_csv('final_gold_data.csv', sep=";", encoding="utf-8", parse_dates=["timestamp"])
+df = pd.read_csv(GOLD_DATA_PATH, sep=";", encoding="utf-8", parse_dates=["timestamp"])
 log.info("Shape: %s", df.shape)
 log.info("Tipos:\n%s", df.dtypes)
 log.info("Estatísticas:\n%s", df.describe())
