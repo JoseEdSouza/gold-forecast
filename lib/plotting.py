@@ -126,7 +126,13 @@ def plot_split_regions(
 
     for name, (_, _, _, idx) in splits.items():
         seg = df.iloc[idx[0] : idx[-1] + 1]
-        ax.plot(seg[date_col], seg[price_col], color=colors.get(name, "black"), lw=1.1, label=name)
+        ax.plot(
+            seg[date_col],
+            seg[price_col],
+            color=colors.get(name, "black"),
+            lw=1.1,
+            label=name,
+        )
 
     ax.legend()
     ax.set_title(title)
@@ -236,7 +242,13 @@ def plot_predicted_vs_actual(
         axes = [axes]
 
     for ax, j, h in zip(axes, range(H), horizons):
-        ax.plot(dates, prices * np.exp(y_true[:, j]), color=pal["dark"], lw=1.1, label="real")
+        ax.plot(
+            dates,
+            prices * np.exp(y_true[:, j]),
+            color=pal["dark"],
+            lw=1.1,
+            label="real",
+        )
         ax.plot(
             dates,
             prices * np.exp(y_pred[:, j]),
@@ -313,7 +325,57 @@ def plot_scatter(
 
 
 # ---------------------------------------------------------------------------
-# 6. Acurácia direcional e MAE/naive por ano
+# 6. Log-retorno previsto × real
+# ---------------------------------------------------------------------------
+
+
+def plot_return_predictions(
+    dates: np.ndarray,
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    horizons: list[int],
+    palette: dict[str, str] | None = None,
+    figsize: tuple[float, float] = (13, 10),
+) -> plt.Figure:
+    """Plota log-retornos previstos versus reais para cada horizonte.
+
+    Parameters
+    ----------
+    dates:
+        Array de datas do conjunto avaliado, shape ``(n,)``.
+    y_true:
+        Log-retornos reais, shape ``(n, H)``.
+    y_pred:
+        Log-retornos previstos, shape ``(n, H)``.
+    horizons:
+        Lista de horizontes em dias.
+    palette:
+        Sobrescreve cores do tema.
+    figsize:
+        Tamanho da figura.
+    """
+    pal = _palette(palette)
+    H = len(horizons)
+    fig, axes = plt.subplots(H, 1, figsize=figsize, sharex=True)
+    if H == 1:
+        axes = [axes]
+
+    for ax, j, h in zip(axes, range(H), horizons):
+        ax.plot(
+            dates, y_pred[:, j], label=f"prev retorno h{h}", color=pal["red"], lw=0.9
+        )
+        ax.plot(
+            dates, y_true[:, j], label=f"real retorno h{h}", color=pal["blue"], lw=0.9
+        )
+        ax.set_title(f"Log-retorno previsto vs real no teste (h={h})")
+        ax.legend(loc="upper left")
+
+    fig.tight_layout()
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# 7. Acurácia direcional e MAE/naive por ano
 # ---------------------------------------------------------------------------
 
 
@@ -358,7 +420,7 @@ def plot_yearly_perf(
 
 
 # ---------------------------------------------------------------------------
-# 7. Distribuição dos resíduos
+# 8. Distribuição dos resíduos
 # ---------------------------------------------------------------------------
 
 
@@ -397,7 +459,9 @@ def plot_residuals(
         Tamanho da figura.
     """
     pal = _palette(palette)
-    resid = (prices * np.exp(y_true[:, horizon_idx])) - (prices * np.exp(y_pred[:, horizon_idx]))
+    resid = (prices * np.exp(y_true[:, horizon_idx])) - (
+        prices * np.exp(y_pred[:, horizon_idx])
+    )
 
     h_label = f"h={horizon}" if horizon is not None else f"col {horizon_idx}"
     mean, std = float(resid.mean()), float(resid.std())
@@ -405,7 +469,9 @@ def plot_residuals(
     fig, ax = plt.subplots(figsize=figsize)
     ax.hist(resid, bins=bins, color=pal["blue"], alpha=0.8)
     ax.axvline(0, color=pal["red"], lw=1.2)
-    ax.set_title(f"Resíduos (real - previsto), {h_label} | média={mean:.1f}  desv={std:.1f}")
+    ax.set_title(
+        f"Resíduos (real - previsto), {h_label} | média={mean:.1f}  desv={std:.1f}"
+    )
     ax.set_xlabel("US$")
     fig.tight_layout()
     return fig

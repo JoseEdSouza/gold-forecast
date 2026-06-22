@@ -114,7 +114,8 @@ def per_year_metrics(
     df = pd.DataFrame(
         {
             "ano": pd.to_datetime(dates).year,
-            "dir_ok": np.sign(y_pred[:, horizon_idx]) == np.sign(y_true[:, horizon_idx]),
+            "dir_ok": np.sign(y_pred[:, horizon_idx])
+            == np.sign(y_true[:, horizon_idx]),
             "ae": np.abs(p_true - p_pred),
             "ae_naive": np.abs(p_true - prices),
         }

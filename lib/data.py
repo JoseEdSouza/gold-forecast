@@ -30,10 +30,10 @@ from sklearn.preprocessing import RobustScaler
 class WindowedSplit:
     """Arrays brutos (não escalonados) de uma janela deslizante para um split."""
 
-    X: np.ndarray       # (n, lookback, n_features) float32
-    Y: np.ndarray       # (n, H) float32 — log-retornos
+    X: np.ndarray  # (n, lookback, n_features) float32
+    Y: np.ndarray  # (n, H) float32 — log-retornos
     prices: np.ndarray  # (n,) float64 — preço de fechamento em t
-    idx: np.ndarray     # (n,) int — índices originais no DataFrame
+    idx: np.ndarray  # (n,) int — índices originais no DataFrame
 
 
 @dataclass
