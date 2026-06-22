@@ -47,6 +47,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CSV = REPO_ROOT / "data" / "processed" / "final_gold_data.csv"
 ARTIFACTS_DIR = REPO_ROOT / "outputs" / "04_cnn"
 MODELS_DIR = REPO_ROOT / "outputs" / "04_cnn"
+METRICS_DIR = REPO_ROOT / "outputs" / "metrics"
 
 
 # ----------------------------------------------------------------------------
@@ -355,6 +356,13 @@ def main():
     model_path = MODELS_DIR / "gold_price_cnn.keras"
     res.to_csv(pred_path, index=False)
     model.save(model_path)
+
+    metrics_cnn = pd.DataFrame(
+        rows, columns=["h", "MAE", "RMSE", "MAPE%", "DirAcc%", "MAE/naive"]
+    ).assign(split="teste", model="cnn")
+    METRICS_DIR.mkdir(parents=True, exist_ok=True)
+    metrics_cnn.to_csv(METRICS_DIR / "metrics_cnn.csv", index=False)
+
     print(f"\n[ok] salvos: {model_path}, {pred_path}")
 
 

@@ -53,6 +53,7 @@ SHOW_PLOTS = True
 CSV_PATH = REPO_ROOT / "data" / "processed" / "gold_features.csv"
 ARTIFACTS_DIR = REPO_ROOT / "outputs" / "03_gru"
 MODELS_DIR = REPO_ROOT / "outputs" / "03_gru"
+METRICS_DIR = REPO_ROOT / "outputs" / "metrics"
 
 np.random.seed(SEED)
 tf.random.set_seed(SEED)
@@ -232,6 +233,8 @@ tbl = pd.concat(
     ignore_index=True,
 )
 tbl.to_csv(ARTIFACTS_DIR / "metrics.csv", index=False)
+METRICS_DIR.mkdir(parents=True, exist_ok=True)
+tbl.assign(model="gru").to_csv(METRICS_DIR / "metrics_gru.csv", index=False)
 print(tbl.round(3))
 
 print("\nDESEMPENHO NO TESTE")

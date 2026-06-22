@@ -31,6 +31,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 GOLD_DATA_PATH = REPO_ROOT / "data" / "processed" / "final_gold_data.csv"
 OUTPUT_DIR = REPO_ROOT / "outputs" / "01_baseline"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+METRICS_DIR = REPO_ROOT / "outputs" / "metrics"
 
 RAMDOM_SEED = 42
 WINDOW_SIZE_MIN = (
@@ -378,6 +379,22 @@ df_metricas = pd.DataFrame(
 )
 df_metricas.to_csv(OUTPUT_DIR / "baseline_lr_metricas.csv")
 log.info("Métricas salvas.")
+
+METRICS_DIR.mkdir(parents=True, exist_ok=True)
+pd.DataFrame([
+    {
+        "model": "baseline_lr", "split": "treino", "h": 1,
+        "MAE": metricas_treino["mae"], "RMSE": metricas_treino["rmse"],
+        "MAPE%": float("nan"), "DirAcc%": metricas_treino["dir_acc"] * 100,
+        "MAE/naive": metricas_treino["mae"] / metricas_naive["mae"],
+    },
+    {
+        "model": "baseline_lr", "split": "teste", "h": 1,
+        "MAE": metricas_teste["mae"], "RMSE": metricas_teste["rmse"],
+        "MAPE%": float("nan"), "DirAcc%": metricas_teste["dir_acc"] * 100,
+        "MAE/naive": metricas_teste["mae"] / metricas_naive["mae"],
+    },
+]).to_csv(METRICS_DIR / "metrics_baseline_lr.csv", index=False)
 
 
 # %% 8. ANÁLISE DE RESÍDUOS — Ljung-Box

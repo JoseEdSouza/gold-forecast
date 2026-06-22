@@ -68,6 +68,7 @@ VAL_RATIO = 0.15
 
 CSV_PATH = REPO_ROOT / "data" / "processed" / "gold_features.csv"
 ARTIFACTS_DIR = REPO_ROOT / "outputs" / "02_xgboost"
+METRICS_DIR = REPO_ROOT / "outputs" / "metrics"
 
 np.random.seed(SEED)
 plt.rcParams.update(
@@ -252,7 +253,7 @@ def probe_xgb_device(prefer_gpu: bool = True) -> str:
     y_probe = np.random.randn(32).astype(np.float32)
     try:
         probe = build_base_estimator().set_params(
-            device="cuda",
+            device="cpu",
             n_estimators=2,
             max_depth=2,
         )
@@ -536,6 +537,8 @@ def main() -> None:
         split_name="teste",
     )
     metrics_test.to_csv(ARTIFACTS_DIR / "metrics_test.csv", index=False)
+    METRICS_DIR.mkdir(parents=True, exist_ok=True)
+    metrics_test.assign(model="xgboost").to_csv(METRICS_DIR / "metrics_xgboost.csv", index=False)
     for h in HORIZONS:
         metrics_test[metrics_test["h"] == h].to_csv(
             ARTIFACTS_DIR / f"metrics_test_h{h}.csv",
