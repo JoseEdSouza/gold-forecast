@@ -30,7 +30,7 @@ log = logging.getLogger(__name__)
 
 #%% hiperparâmetros
 SEED = 42
-GOLD_DATA_PATH = "final_gold_data.csv"
+GOLD_DATA_PATH = "data/gold_features.csv"
 OUTPUT_DIR = Path("output_analisefinal")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
@@ -61,7 +61,12 @@ log.info("Carregaod os dados")
     os.environ.get("GOLD_DATA_PATH", "../data/final_gold_data.csv")
 ) """
 
-df = pd.read_csv('final_gold_data.csv', sep=";", encoding="utf-8", parse_dates=["timestamp"])
+df = pd.read_csv(GOLD_DATA_PATH, sep=",", encoding="utf-8")
+# suportar arquivos com coluna 'date' (rename para 'timestamp')
+if "timestamp" not in df.columns and "date" in df.columns:
+    df.rename(columns={"date": "timestamp"}, inplace=True)
+# garantir parsing de datas
+df["timestamp"] = pd.to_datetime(df["timestamp"])
 log.info("Shape: %s", df.shape)
 log.info("Tipos:\n%s", df.dtypes)
 log.info("Estatísticas:\n%s", df.describe())
