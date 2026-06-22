@@ -34,4 +34,6 @@ dependencies = [
     "keras>=3.14.1",
     "keras-tuner>=1.4.8",
     "tensorboard>=2.20.0",
+    "nvidia-cudnn-cu12>=9.23.2.1",
+    "nvidia-cuda-nvcc-cu12>=12.9.86",
 ]
