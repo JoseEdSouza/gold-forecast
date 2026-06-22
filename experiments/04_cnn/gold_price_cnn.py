@@ -32,8 +32,9 @@ import numpy as np
 import pandas as pd
 from sklearn.preprocessing import RobustScaler
 
+import keras
 import tensorflow as tf
-from tensorflow.keras import layers, Model, callbacks
+from keras import layers, Model, callbacks
 
 SEED = 42
 np.random.seed(SEED)
@@ -222,8 +223,8 @@ def build_model(n_features: int) -> Model:
     model = Model(inp, outs)
 
     model.compile(
-        optimizer=tf.keras.optimizers.Adam(0.00405701014195834),
-        loss={f"h{h}": tf.keras.losses.Huber(delta=1.0) for h in HORIZONS},
+        optimizer=keras.optimizers.Adam(0.00405701014195834),
+        loss={f"h{h}": keras.losses.Huber(delta=1.0) for h in HORIZONS},
         loss_weights={"h5": 1.0, "h15": 0.6, "h30": 0.2},
     )
     return model
@@ -304,10 +305,10 @@ def main():
     # --- Escalonamento robusto: fit SÓ no treino (anti-vazamento, anti-outlier)
     nf = Xtr.shape[2]
     x_scaler = RobustScaler().fit(Xtr.reshape(-1, nf))
+
     def scale_x(X):
-        return (
-            x_scaler.transform(X.reshape(-1, nf)).reshape(X.shape).astype(np.float32)
-        )
+        return x_scaler.transform(X.reshape(-1, nf)).reshape(X.shape).astype(np.float32)
+
     Xtr, Xva, Xte = scale_x(Xtr), scale_x(Xva), scale_x(Xte)
     # clip pós-escala: limita a influência de dias de pânico sem removê-los
     Xtr, Xva, Xte = (np.clip(a, -8, 8) for a in (Xtr, Xva, Xte))

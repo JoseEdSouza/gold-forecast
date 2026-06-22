@@ -16,8 +16,9 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import keras
 import tensorflow as tf
-from tensorflow.keras import Model, callbacks, layers
+from keras import Model, callbacks, layers
 
 
 from src import (
@@ -102,8 +103,8 @@ def build_model(n_features: int) -> Model:
 
     model = Model(inp, outs)
     model.compile(
-        optimizer=tf.keras.optimizers.Adam(1e-3),
-        loss={f"h{h}": tf.keras.losses.Huber(1.0) for h in HORIZONS},
+        optimizer=keras.optimizers.Adam(1e-3),
+        loss={f"h{h}": keras.losses.Huber(1.0) for h in HORIZONS},
         loss_weights={"h5": 1.0, "h15": 0.7, "h30": 0.5},
     )
     return model
@@ -253,6 +254,7 @@ fig = plot_predicted_vs_actual(
     scaled.prices["teste"],
     HORIZONS,
     ylabel="Preço (US$/oz)",
+    model_name="GRU",
 )
 fig.savefig(ARTIFACTS_DIR / "predicted_vs_actual_test.png", bbox_inches="tight")
 show_or_close(fig)

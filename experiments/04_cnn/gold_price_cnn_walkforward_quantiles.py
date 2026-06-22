@@ -32,8 +32,9 @@ import numpy as np
 import pandas as pd
 from sklearn.preprocessing import RobustScaler
 
+import keras
 import tensorflow as tf
-from tensorflow.keras import layers, Model, callbacks
+from keras import layers, Model, callbacks
 
 # Reaproveita carregamento, features, alvos e janelas da v1
 from gold_price_cnn import (
@@ -63,7 +64,7 @@ ARTIFACTS_DIR = REPO_ROOT / "outputs" / "04_cnn"
 # Pinball loss (quantile loss): penaliza assimetricamente acima/abaixo do
 # quantil. Minimizá-la faz cada saída convergir para o quantil correspondente.
 # ----------------------------------------------------------------------------
-@tf.keras.utils.register_keras_serializable(package="Custom")
+@keras.utils.register_keras_serializable(package="Custom")
 def pinball_loss(y_true, y_pred):
     q = tf.constant(QUANTILES, tf.float32)  # (3,)
     y_true = tf.reshape(y_true, (-1, 1))  # (b,1)
@@ -89,7 +90,7 @@ def build_model(n_features: int) -> Model:
     outs = [layers.Dense(len(QUANTILES), name=f"h{h}")(x) for h in HORIZONS]
     model = Model(inp, outs)
     model.compile(
-        optimizer=tf.keras.optimizers.Adam(1e-3),
+        optimizer=keras.optimizers.Adam(1e-3),
         loss={f"h{h}": pinball_loss for h in HORIZONS},
         loss_weights={"h5": 1.0, "h15": 0.7, "h30": 0.5},
     )
@@ -128,19 +129,22 @@ def walk_forward(df, feature_cols, epochs=40, fold_start=1, fold_end=99):
 
         # escala: fit SÓ no treino deste fold
         xs = RobustScaler().fit(Xtr.reshape(-1, nf))
+
         def sc(X):
             return np.clip(
-                    xs.transform(X.reshape(-1, nf)).reshape(X.shape), -8, 8
-                ).astype(np.float32)
+                xs.transform(X.reshape(-1, nf)).reshape(X.shape), -8, 8
+            ).astype(np.float32)
+
         Xtr, Xva, Xte = sc(Xtr), sc(Xva), sc(Xte)
         ys = RobustScaler().fit(Ytr)
+
         def d(Y):
             return {
-                    f"h{h}": ys.transform(Y).astype(np.float32)[:, j]
-                    for j, h in enumerate(HORIZONS)
-                }
+                f"h{h}": ys.transform(Y).astype(np.float32)[:, j]
+                for j, h in enumerate(HORIZONS)
+            }
 
-        tf.keras.backend.clear_session()
+        keras.backend.clear_session()
         model = build_model(nf)
         model.fit(
             Xtr,

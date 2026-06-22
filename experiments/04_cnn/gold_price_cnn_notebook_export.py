@@ -32,8 +32,9 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from pathlib import Path
 from sklearn.preprocessing import RobustScaler
+import keras
 import tensorflow as tf
-from tensorflow.keras import layers, Model, callbacks
+from keras import layers, Model, callbacks
 
 SEED = 42
 np.random.seed(SEED)
@@ -281,8 +282,8 @@ def build_model(nf):
     outs = [layers.Dense(1, name=f"h{h}")(x) for h in HORIZONS]
     m = Model(inp, outs)
     m.compile(
-        optimizer=tf.keras.optimizers.Adam(1e-3),
-        loss={f"h{h}": tf.keras.losses.Huber(1.0) for h in HORIZONS},
+        optimizer=keras.optimizers.Adam(1e-3),
+        loss={f"h{h}": keras.losses.Huber(1.0) for h in HORIZONS},
         loss_weights={"h5": 1.0, "h15": 0.7, "h30": 0.5},
     )
     return m

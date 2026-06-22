@@ -559,6 +559,7 @@ def main() -> None:
         P_test,
         HORIZONS,
         ylabel="Preço (US$/oz)",
+        model_name="XGBoost",
     )
     fig.savefig(ARTIFACTS_DIR / "predicted_vs_actual_test.png", bbox_inches="tight")
     show_or_close(fig)

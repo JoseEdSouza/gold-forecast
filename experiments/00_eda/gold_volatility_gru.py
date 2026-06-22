@@ -18,13 +18,14 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.linear_model import Ridge
 
+import keras
 import tensorflow as tf
-from tensorflow.keras import Input
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense
-from tensorflow.keras.callbacks import EarlyStopping
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.callbacks import ReduceLROnPlateau
+from keras import Input
+from keras.models import Sequential
+from keras.layers import Dense
+from keras.callbacks import EarlyStopping
+from keras.optimizers import Adam
+from keras.callbacks import ReduceLROnPlateau
 
 import yfinance as yf
 import requests
@@ -519,7 +520,7 @@ print("Train:", X_train_full.shape, "Test:", X_test.shape)
 # In[ ]:
 
 
-from tensorflow.keras.layers import GRU
+from keras.layers import GRU
 
 
 def build_model(learning_rate=0.001):
@@ -580,7 +581,7 @@ for fold, (train_idx, val_idx) in enumerate(folds):
     y_tr_s = sc_y.fit_transform(y_tr.reshape(-1, 1)).ravel()
     y_va_s = sc_y.transform(y_va.reshape(-1, 1)).ravel()
 
-    tf.keras.backend.clear_session()
+    keras.backend.clear_session()
     m = build_model()
     m.fit(
         X_tr_s,
@@ -661,7 +662,7 @@ y_slide_train = y_slide_s[:val_cut]
 
 print(f"Treino: {X_slide_train.shape}  Val: {val_X_slide.shape}")
 
-tf.keras.backend.clear_session()
+keras.backend.clear_session()
 final_model = build_model()
 
 history = final_model.fit(
