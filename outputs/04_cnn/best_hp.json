@@ -1,0 +1,11 @@
+{
+  "filters_1": 96,
+  "filters_2": 64,
+  "filters_3": 256,
+  "spatial_dropout": 0.2,
+  "dense_units": 64,
+  "dropout": 0.2,
+  "lr": 0.00405701014195834,
+  "loss_weight_h15": 0.6000000000000001,
+  "loss_weight_h30": 0.2
+}

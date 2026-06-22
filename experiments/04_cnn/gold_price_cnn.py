@@ -199,32 +199,32 @@ def temporal_split(n, train=0.70, val=0.15):
 # 4. MODELO: CNN 1D causal com dilatação (campo receptivo cobre os 60 dias)
 # ----------------------------------------------------------------------------
 def build_model(n_features: int) -> Model:
+    # Hiperparâmetros obtidos via BayesianOptimization (outputs/04_cnn/best_hp.json)
     inp = layers.Input(shape=(LOOKBACK, n_features))
 
-    x = layers.Conv1D(64, 5, padding="causal", activation="relu")(inp)
+    x = layers.Conv1D(96, 5, padding="causal", activation="relu")(inp)
     x = layers.LayerNormalization()(x)
     x = layers.Conv1D(64, 3, padding="causal", dilation_rate=2, activation="relu")(x)
     x = layers.LayerNormalization()(x)
-    x = layers.Conv1D(128, 3, padding="causal", dilation_rate=4, activation="relu")(x)
+    x = layers.Conv1D(256, 3, padding="causal", dilation_rate=4, activation="relu")(x)
     x = layers.LayerNormalization()(x)
-    x = layers.SpatialDropout1D(0.15)(x)
+    x = layers.SpatialDropout1D(0.20)(x)
 
     # Pooling duplo: média (tendência) + máximo (eventos extremos/choques)
     x = layers.Concatenate()(
         [layers.GlobalAveragePooling1D()(x), layers.GlobalMaxPooling1D()(x)]
     )
     x = layers.Dense(64, activation="relu")(x)
-    x = layers.Dropout(0.25)(x)
+    x = layers.Dropout(0.20)(x)
 
     # Uma cabeça por horizonte (representação compartilhada, saídas separadas)
     outs = [layers.Dense(1, name=f"h{h}")(x) for h in HORIZONS]
     model = Model(inp, outs)
 
     model.compile(
-        optimizer=tf.keras.optimizers.Adam(1e-3),
+        optimizer=tf.keras.optimizers.Adam(0.00405701014195834),
         loss={f"h{h}": tf.keras.losses.Huber(delta=1.0) for h in HORIZONS},
-        # horizontes longos têm mais variância; pesos equilibram o gradiente
-        loss_weights={"h5": 1.0, "h15": 0.7, "h30": 0.5},
+        loss_weights={"h5": 1.0, "h15": 0.6, "h30": 0.2},
     )
     return model
 
