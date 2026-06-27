@@ -34,3 +34,6 @@ uv.lock
 
 # tuner files
 **/tuner
+
+# os files
+.directory
