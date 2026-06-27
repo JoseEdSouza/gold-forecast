@@ -864,6 +864,86 @@
 \end{frame}
 
 %% ---------------------------------------------------------------------------
+\section{Discussão}
+
+\begin{frame}{\(R^2\) alto pode ser ilusão}
+    \begin{figure}
+        \centering
+        \includegraphics[width=0.96\linewidth]{figs/cnn_scatter.png}
+        \caption{Dispersão entre preço previsto e preço real no teste para a CNN.}
+    \end{figure}
+
+    \vspace{0.2cm}
+    \alertbox{\textbf{Ponto central:} mesmo com \(R^2\) entre 0,92 e 0,98, o ganho real sobre o \emph{random walk} pode ser apenas marginal.}
+\end{frame}
+
+%% ---------------------------------------------------------------------------
+\begin{frame}{Quem foi mais estável?}
+    \begin{itemize}
+        \item No \emph{split} único, CNN 1D e XGBoost praticamente empatam entre os melhores.
+        \item No \emph{walk-forward}, a \textbf{CNN} fica mais estável e com média mais próxima de ganho real consistente.
+        \item GRU e LSTM ficam mais sensíveis à variação entre regimes.
+        \item Por isso, a CNN 1D causal foi escolhida como \textbf{modelo principal} do trabalho.
+    \end{itemize}
+\end{frame}
+
+%% ---------------------------------------------------------------------------
+\begin{frame}{Heatmap de acurácia direcional em \(h=30\)}
+    \begin{figure}
+        \centering
+        \includegraphics[width=0.94\linewidth]{figs/diracc_heatmap_h30.png}
+        \caption{Acurácia direcional por modelo e por ano em \(h=30\).}
+    \end{figure}
+\end{frame}
+
+%% ---------------------------------------------------------------------------
+\begin{frame}{Onde os modelos falham}
+    \begin{itemize}
+        \item O heatmap deixa claro que \textbf{2022} e \textbf{2023} são anos difíceis para todos os modelos.
+        \item Esses períodos são mais laterais e ruidosos, com pouco sinal direcional persistente.
+        \item O índice de medo por léxico ajuda pouco: a informação textual ainda está subexplorada.
+        \item Isso reforça a leitura final do trabalho: \textbf{os modelos capturam tendência quando ela existe, mas não ``criam'' sinal}. 
+    \end{itemize}
+\end{frame}
+
+%% ---------------------------------------------------------------------------
+\section{Conclusão}
+
+\begin{frame}{Conclusão}
+    \begin{itemize}
+        \item \textbf{Primeiro achado:} reformular o problema em \textbf{log-retorno} foi essencial para torná-lo estatisticamente bem posto.
+        \item \textbf{Segundo achado:} no \emph{split} recente, \textbf{CNN 1D} e \textbf{XGBoost} superam o \emph{random walk}.
+        \item \textbf{Terceiro achado:} sob validação \emph{walk-forward}, esse ganho fica \textbf{pequeno} e \textbf{dependente do regime}.
+    \end{itemize}
+
+    \vspace{0.3cm}
+    \simplebox{\textbf{Mensagem final:} o trabalho mostra que existe sinal preditivo marginal, mas ele é frágil e não sobrevive de forma uniforme a todos os cenários de mercado.}
+\end{frame}
+
+%% ---------------------------------------------------------------------------
+\begin{frame}{Limitações}
+    \begin{itemize}
+        \item O sinal direcional é intrinsecamente \textbf{fraco}.
+        \item O estudo foi feito sobre \textbf{um único ativo} e um \textbf{único período histórico}.
+        \item O componente textual foi tratado de forma \textbf{rudimentar}, com um léxico simples de medo.
+        \item Portanto, os resultados não devem ser lidos como solução geral para previsão financeira.
+    \end{itemize}
+\end{frame}
+
+%% ---------------------------------------------------------------------------
+\begin{frame}{Trabalhos futuros}
+    \begin{itemize}
+        \item Substituir o léxico de medo por \textbf{embeddings} ou modelos de \textbf{sentimento financeiro}.
+        \item Incorporar variáveis macroeconômicas causais, como \textbf{juros reais}, \textbf{dólar} e \textbf{outros metais}.
+        \item Avaliar arquiteturas com atenção, como o \textbf{Temporal Fusion Transformer}.
+        \item Fazer \textbf{calibração formal} dos intervalos previstos pela CNN por quantis.
+    \end{itemize}
+
+    \vspace{0.3cm}
+    \successbox{O caminho promissor não é só aumentar a complexidade do modelo, mas enriquecer causalmente a informação e medir melhor a incerteza.}
+\end{frame}
+
+%% ---------------------------------------------------------------------------
 % Reference frames
 \begin{frame}[allowframebreaks]
     \frametitle{Referências}
@@ -881,7 +961,7 @@
     \Large{\textbf{Contato:}}
     \newline
     \vspace*{0.5cm}
-    \large{\email{usuario@dominio}}
+    \large{\email{\{paulinofilho, ivinalorena, gabrielmendes01, joseedsouza\}@alu.ufc.br}}
 \end{frame}
 
 \end{document}
