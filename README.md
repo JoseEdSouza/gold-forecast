@@ -1,4 +1,4 @@
-# Gold Forecast
+ # Gold Forecast
 
 Repositório de experimentos de previsão do preço e volatilidade do ouro usando modelos de machine learning e deep learning.
 
@@ -19,7 +19,9 @@ gold-forecast/
 │   ├── 01_baseline/    # regressão linear (referência)
 │   ├── 02_xgboost/     # XGBoost com otimização bayesiana
 │   ├── 03_gru/         # GRU multi-horizonte
-│   └── 04_cnn/         # CNN 1D causal + walk-forward com quantis
+│   ├── 04_cnn/         # CNN 1D causal + walk-forward com quantis
+│   └── 05_lstm/        # LSTM multi-horizonte
+├── docs/               # documentação consolidada por experimento
 ├── outputs/            # artefatos gerados (plots, métricas, modelos)
 └── pyproject.toml
 ```
@@ -43,6 +45,7 @@ gold-forecast/
 | [02_xgboost](experiments/02_xgboost/README.md) | XGBoost + Bayes CV | `gold_features.csv` | h=5,15,30 |
 | [03_gru](experiments/03_gru/README.md) | GRU multi-saída | `gold_features.csv` | h=5,15,30 |
 | [04_cnn](experiments/04_cnn/README.md) | CNN 1D + walk-forward | `final_gold_data.csv` | h=5,15,30 |
+| [05_lstm](experiments/05_lstm/README.md) | LSTM multi-saída | `gold_features.csv` | h=5,15,30 |
 
 ## Módulo compartilhado (`src/`)
 
@@ -69,3 +72,15 @@ python experiments/03_gru/gold_price_gru.py
 python experiments/04_cnn/gold_price_cnn.py
 python experiments/04_cnn/gold_price_cnn_walkforward_quantiles.py
 ```
+
+## Documentacao detalhada
+
+- Hub de documentacao: [docs/README.md](docs/README.md)
+- Notebook de analise consolidada das metricas: [experiments/metrics_results_analysis.ipynb](experiments/metrics_results_analysis.ipynb)
+- Documentos por experimento:
+  - [00_eda](docs/experiments/00_eda.md)
+  - [01_baseline](docs/experiments/01_baseline.md)
+  - [02_xgboost](docs/experiments/02_xgboost.md)
+  - [03_gru](docs/experiments/03_gru.md)
+  - [04_cnn](docs/experiments/04_cnn.md)
+  - [05_lstm](docs/experiments/05_lstm.md)
