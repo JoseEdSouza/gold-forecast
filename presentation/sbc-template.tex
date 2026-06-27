@@ -1,0 +1,782 @@
+\documentclass[12pt]{article}
+
+% ===================================================================
+% Pacotes
+% ===================================================================
+\usepackage{sbc-template}
+\usepackage{graphicx,url}
+\usepackage[utf8]{inputenc}      % conteúdo do arquivo em UTF-8
+\usepackage[T1]{fontenc}         % acentuação correta na saída
+\usepackage[brazil]{babel}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{float}
+\usepackage{booktabs}            % \toprule, \midrule, \bottomrule
+\usepackage{multirow}            % \multirow nas tabelas de resultados
+
+\sloppy
+
+% ===================================================================
+% Título e autores  --  PREENCHER os nomes reais dos integrantes
+% ===================================================================
+\title{Previsão multi-horizonte do preço do ouro:\\
+       uma comparação entre modelos lineares, \emph{boosting} e redes
+       neurais profundas sobre log-retornos}
+
+\author{Francisco Paulino Arruda Filho \inst{1}, Ivina Lorena Oliveira Moura\inst{1},\\ Gabriel de Souza Mendes\inst{1}, José Vinicius Evangelista Dias de Souza\inst{1}}
+
+\address{
+  Mestrado e Doutorado em Ciência da Computação (MDCC)\\
+  Universidade Federal do Ceará (UFC) -- Fortaleza, CE -- Brasil
+\email{\{paulinofilho, ivinalorena, gabrielmendes01, joseedsouza\}@alu.ufc.br}}
+
+
+\begin{document}
+
+\maketitle
+
+% ===================================================================
+% Resumos
+% ===================================================================
+\begin{abstract}
+This work addresses daily gold price forecasting as a multi-horizon regression problem.
+Instead of the raw price, which is highly non-stationary, we adopt as target the
+cumulative log-return over $h\!\in\!\{5,15,30\}$ trading days, reconstructed to
+US\$/oz for evaluation. From 20 years of data, we build 19 strictly causal,
+price‑level‑invariant features and feed 60‑day sliding windows to five models:
+linear regression (baseline), Bayesian‑optimized XGBoost, Gated Recurrent Unit(GRU) and Long Short-Term Memory (LSTM) recurrent
+networks, and a causal dilated 1D CNN. All share a single temporal split without
+leakage and are compared to the \emph{random walk} by the
+$\mathrm{MAE}/\mathrm{MAE}_{\text{naive}}$ ratio and by directional accuracy. On a
+recent test split, CNN and XGBoost outperform the random walk at all horizons and
+reach $\approx\!62\%$ directional accuracy for $h\!=\!30$; under walk‑forward
+validation, however, the gain over the baseline is small and strongly dependent on
+the market regime.
+\end{abstract}
+
+\begin{resumo}
+  Este trabalho aborda a previsão diária do preço do ouro como um problema de
+  regressão multi-horizonte. Em vez do preço bruto, fortemente
+  não-estacionário, adota-se como alvo o log-retorno acumulado em
+  $h\!\in\!\{5,15,30\}$ pregões, reconstruído para US\$/oz na avaliação. A
+  partir de $20$ anos de dados, construímos $19$ atributos estritamente
+  causais e invariantes a nível de preço, e alimentamos janelas deslizantes de
+  $60$ dias a cinco modelos: regressão linear (referência), XGBoost com
+  otimização bayesiana, redes recorrentes Gated Recurrent Unit(GRU) e Long Short-Term Memory (LSTM) e uma CNN 1D causal com
+  dilatação. Todos compartilham um único \emph{split} temporal sem vazamento e
+  são comparados ao \emph{random walk} pela razão
+  $\mathrm{MAE}/\mathrm{MAE}_{\text{naive}}$ e pela acurácia direcional. Num
+  \emph{split} de teste recente, a CNN e o XGBoost superam o \emph{random walk}
+  em todos os horizontes e atingem $\approx\!62\%$ de acurácia direcional em
+  $h\!=\!30$; sob validação \emph{walk-forward}, contudo, o ganho sobre a
+  referência é pequeno e fortemente dependente do regime de mercado.
+\end{resumo}
+
+% ===================================================================
+\section{Introdução}
+\label{sec:introducao}
+
+Séries temporais consistem em sequências de observações coletadas em instantes
+sucessivos e, em geral, igualmente espaçados no tempo. A análise dessas séries
+busca identificar padrões recorrentes --- tendências, sazonalidades, regimes de
+volatilidade --- com o objetivo de apoiar a estimativa de valores futuros
+\cite{boxjenkins2015,hyndman2021fpp}. O preço do ouro é um caso particularmente
+interessante: trata-se de um ativo de reserva e instrumento clássico de
+proteção (\emph{hedge}) contra inflação e incerteza geopolítica, cuja cotação
+acompanha de perto crises econômicas, ciclos de juros e a força do dólar.
+
+Prever esse preço, entretanto, é difícil por razões estruturais. Em primeiro
+lugar, séries de preços de ativos financeiros aproximam-se de um passeio
+aleatório (\emph{random walk}): sob a hipótese de mercados eficientes, a melhor
+previsão para o preço de amanhã é, em grande medida, o preço de hoje
+\cite{fama1970efficient}. O sinal preditível, quando existe, é fraco e está
+imerso em ruído. Em segundo lugar, o nível do preço é fortemente
+não-estacionário: como mostra a Figura~\ref{fig:serie}, a cotação do ouro saiu
+de cerca de US\$\,280 por onça troy no início dos anos 2000 para mais de
+US\$\,3.000 em 2025. Um modelo treinado diretamente no preço bruto jamais
+observaria, em treino, os patamares presentes no conjunto de teste --- um
+problema de extrapolação que inviabiliza a generalização.
+
+A hipótese de trabalho deste projeto é dupla: (i) reformular o alvo em termos
+de \emph{log-retornos acumulados}, que são aproximadamente estacionários, torna
+o problema bem-posto; e (ii) modelos capazes de capturar dependências
+temporais e relações não-lineares entre indicadores técnicos podem extrair, dos
+$60$ dias anteriores, um sinal direcional marginal sobre o \emph{random walk}.
+Formalmente, a tarefa é definida como: dada uma janela de $60$ pregões de
+atributos derivados do preço, prever o log-retorno acumulado em $5$, $15$ e $30$
+dias úteis à frente, simultaneamente (previsão multi-horizonte).
+
+As principais contribuições deste trabalho são:
+\begin{itemize}
+  \item a definição de um \emph{pipeline} de avaliação rigoroso e sem
+        vazamento temporal (\emph{split} cronológico com \emph{gap},
+        normalização ajustada apenas no treino, métricas relativas a um
+        \emph{baseline} ingênuo), compartilhado por todos os modelos;
+  \item a comparação sistemática de cinco famílias de modelos sobre
+        \emph{exatamente} as mesmas janelas e o mesmo alvo --- regressão
+        linear, \emph{gradient boosting} (XGBoost), redes recorrentes
+        (Gated Recurrent Unit(GRU) e Long Short-Term Memory (LSTM)) e rede convolucional 1D causal;
+  \item uma análise honesta da robustez via validação \emph{walk-forward},
+        que evidencia que o ganho sobre o \emph{random walk} é real, porém
+        pequeno e fortemente dependente do regime de mercado.
+\end{itemize}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\linewidth]{figuras/serie_preco.png}
+  \caption{Preço de fechamento diário do ouro (US\$/oz) entre 2000 e 2025. A
+    forte tendência de alta e a ausência de média constante caracterizam uma
+    série não-estacionária, motivando o uso do log-retorno como alvo.}
+  \label{fig:serie}
+\end{figure}
+
+% ===================================================================
+\section{Fundamentação Teórica}
+\label{sec:fundamentacao}
+
+\subsection{Definição do problema}
+\label{sec:definicao}
+
+Formaliza-se a tarefa como um problema de regressão multi-horizonte sobre uma
+série temporal financeira. Seja $P_t$ o preço de fechamento do ouro no pregão
+$t$. A cada instante dispõe-se de uma janela deslizante de $L = 60$ pregões
+contendo um vetor de atributos $\mathbf{x}_\tau \in \mathbb{R}^{d}$ por dia,
+formando a matriz de entrada
+\begin{equation}
+  X_t = [\mathbf{x}_{t-L+1}, \dots, \mathbf{x}_t] \in \mathbb{R}^{L \times d}.
+\end{equation}
+O objetivo não é prever o preço bruto, mas o \emph{log-retorno acumulado} em
+$h$ dias à frente:
+\begin{equation}
+  y_t^{(h)} = \log\!\left(\frac{P_{t+h}}{P_t}\right),
+  \qquad h \in \{5, 15, 30\}.
+  \label{eq:alvo}
+\end{equation}
+A escolha do log-retorno como alvo justifica-se por dois motivos. Primeiro, como
+discutido na Seção~\ref{sec:introducao}, o preço é fortemente não-estacionário
+(ver Figura~\ref{fig:serie}), enquanto o log-retorno é aproximadamente
+estacionário e centrado em zero, evitando o problema de extrapolação. Segundo,
+o log-retorno é aditivo no tempo e simétrico, o que facilita tanto a
+modelagem quanto a reconstrução do preço. Esta última é feita
+\emph{a posteriori} por
+\begin{equation}
+  \hat{P}_{t+h} = P_t \cdot \exp\!\big(\hat{y}_t^{(h)}\big),
+  \label{eq:reconstrucao}
+\end{equation}
+de modo que todas as métricas de erro possam ser expressas em US\$/oz,
+interpretáveis pelo usuário final.
+
+\subsection{Descrição dos dados}
+\label{sec:dados}
+
+Os dados provêm do conjunto público \emph{Precious Metals History since 2000
+with News}, disponível no Kaggle, com cotações diárias de metais preciosos
+desde 2000 e manchetes associadas às datas. Utilizou-se a série do ouro,
+cobrindo mais de duas décadas de pregões (de 2000 a 2025). As colunas
+originais relevantes são:
+
+\begin{description}
+  \item[\texttt{timestamp}] data da observação, com granularidade diária;
+        índice temporal de todos os \emph{merges} e janelas móveis.
+  \item[\texttt{open, high, low, close}] preços de abertura, máxima, mínima e
+        fechamento do dia, na unidade de cotação.
+  \item[\texttt{volume}] volume negociado do ativo no dia.
+  \item[\texttt{currency, unit}] moeda (USD) e unidade (onça troy) de
+        denominação --- campos categóricos, constantes em toda a série e,
+        portanto, descartados na modelagem.
+  \item[\texttt{headlines}] texto de manchete associado à data, de natureza
+        textual.
+\end{description}
+
+\subsubsection{Engenharia de atributos}
+\label{sec:features}
+
+A partir da série de preços derivaram-se $d = 19$ atributos exclusivamente
+\emph{relativos} (retornos, razões e osciladores), nunca o preço bruto, de modo
+a generalizar entre diferentes níveis de cotação. O conjunto, descrito na
+Tabela~\ref{tab:features}, reúne log-retornos em múltiplas escalas,
+volatilidades realizadas e sua razão (indicador de estresse), distância a
+médias móveis, cruzamento de médias, Relative Strength Index (RSI), histograma Moving Average Convergence Divergence (MACD), posição nas bandas
+de Bollinger, \emph{drawdown} de $252$ dias, descritores intradiários da barra
+Open–High–Low–Close (OHLC), e um índice textual de ``medo'' extraído das manchetes.
+
+O índice de medo é calculado por um léxico de termos associados a crises
+geopolíticas e financeiras (por exemplo, \emph{crisis}, \emph{crash},
+\emph{war}, \emph{recession}, \emph{inflation}, \emph{default},
+\emph{pandemic}), contando ocorrências por manchete e suavizando por média
+móvel de $5$ dias. Trata-se de uma abordagem deliberadamente simples de Processamento de Linguagem Natural (PLN)
+baseada em contagem; alternativas mais sofisticadas (\emph{embeddings},
+modelos de sentimento financeiro) ficam como trabalho futuro.
+
+\begin{table}[H]
+  \caption{Os $19$ atributos de entrada. Todos são causais (usam apenas
+    informação até $t$) e invariantes ao nível de preço.}
+  \label{tab:features}
+  \centering
+  \small
+  \begin{tabular}{lll}
+    \toprule
+    Atributo & Definição & Grupo \\
+    \midrule
+    \texttt{log\_ret\_1,5,21} & $\log(P_t/P_{t-k})$, $k\in\{1,5,21\}$ & Momentum \\
+    \texttt{vol\_5, vol\_21}  & desvio-padrão móvel de \texttt{log\_ret\_1} & Volatilidade \\
+    \texttt{vol\_ratio}       & $\mathrm{vol}_5/\mathrm{vol}_{21}$ ($>1$ = estresse) & Volatilidade \\
+    \texttt{dist\_ma20,50}    & $P_t/\mathrm{MA}_k - 1$, $k\in\{20,50\}$ & Tendência \\
+    \texttt{ma\_cross}        & $\mathrm{MA}_{20}/\mathrm{MA}_{50} - 1$ & Tendência \\
+    \texttt{rsi}              & RSI(14) recentrado em $[-1,1]$ & Oscilador \\
+    \texttt{macd\_hist}       & histograma MACD normalizado por $P_t$ & Oscilador \\
+    \texttt{boll\_b}          & posição \%B nas bandas de Bollinger & Oscilador \\
+    \texttt{drawdown\_252}    & $P_t/\max_{252}(P) - 1$ & Regime \\
+    \texttt{hl\_range}        & $(\mathrm{high}-\mathrm{low})/P_t$ & Intradiário \\
+    \texttt{close\_pos}       & posição do fechamento na barra OHLC & Intradiário \\
+    \texttt{gap\_open}        & $\log(\mathrm{open}_t/P_{t-1})$ & Intradiário \\
+    \texttt{volume}           & volume negociado no dia & Liquidez \\
+    \texttt{fear\_ratio}      & índice de medo por léxico nas manchetes & Texto \\
+    \texttt{fear\_ma5}        & média móvel de $5$ dias de \texttt{fear\_ratio} & Texto \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+A análise exploratória dos dados (Seção~\ref{sec:eda}) confirma duas
+propriedades estatísticas centrais: o preço é não-estacionário (o teste de
+Dickey--Fuller Aumentado, ADF, não rejeita a hipótese de raiz unitária no
+preço, mas a rejeita nos log-retornos) \cite{dickeyfuller1979}, e a
+distribuição dos log-retornos é leptocúrtica, com caudas pesadas e assimetria
+negativa --- justificando o uso de funções de perda e normalizadores robustos
+(Seção~\ref{sec:preproc}).
+
+\subsection{Trabalhos relacionados}
+\label{sec:relacionados}
+
+A previsão de séries financeiras com aprendizado profundo é um campo ativo com trabalhos relevantes.
+\cite{sezer2020dlreview} revisam sistematicamente o uso de redes neurais para
+esse fim entre 2005 e 2019, destacando o predomínio de redes recorrentes
+(LSTM/GRU) e o crescente interesse por arquiteturas convolucionais e de atenção.
+As redes LSTM \cite{hochreiter1997lstm} e GRU \cite{cho2014gru} são padrão para
+dependências temporais de longo prazo. Em paralelo, modelos convolucionais
+causais, de \emph{WaveNet} \cite{oord2016wavenet} às \emph{Temporal
+Convolutional Networks} (TCN) \cite{bai2018tcn}, mostraram que convoluções
+dilatadas competem com (ou superam) (Recurrent Neural Networks) RNNs em modelagem de sequências, com
+treinamento mais estável e paralelizável. Para dados tabulares derivados de
+janelas, métodos de \emph{gradient boosting} como o XGBoost
+\cite{chen2016xgboost} são fortíssimos \emph{baselines}. Mais recentemente, o
+\emph{Temporal Fusion Transformer} \cite{lim2021tft} unificou previsão
+multi-horizonte e interpretabilidade. Embora não tenha sido implementado aqui
+por restrições de tempo, é uma direção natural de continuidade.
+
+O ponto de partida direto deste trabalho foi um experimento acadêmico anterior
+(2025) que utilizou \emph{este mesmo conjunto de dados} com \emph{Ridge
+Regression} para prever o ouro um dia à frente. Aquele trabalho continha uma
+falha metodológica grave: aplicou \emph{shuffle} aleatório nas amostras antes do
+\emph{split}, misturando passado e futuro e produzindo vazamento de dados e
+\emph{overfitting} otimista. Código disponível em
+\url{https://github.com/JoseEdSouza/machine-learning-works/blob/main/gold/eda.ipynb}.
+Corrigir esse erro, adotando um protocolo estritamente temporal com
+\emph{gap} anti-vazamento, é uma preocupação central da
+Seção~\ref{sec:metodologia}.
+
+% ===================================================================
+\section{Metodologia}
+\label{sec:metodologia}
+
+\subsection{Pré-processamento e engenharia de atributos}
+\label{sec:preproc}
+
+Todos os atributos da Tabela~\ref{tab:features} são \emph{causais}: em cada
+instante $t$ utilizam apenas informação disponível até $t$, não havendo
+vazamento temporal a partir das \emph{features}. As janelas deslizantes de
+$L = 60$ dias foram construídas descartando-se janelas que contivessem qualquer
+valor ausente (em geral no início da série, por conta das médias móveis longas).
+
+A padronização foi feita com \texttt{RobustScaler} (mediana e intervalo
+interquartil), mais adequado às caudas pesadas típicas de períodos de crise do
+que a padronização por média/desvio, seguido de \emph{clipping} em $\pm 8$
+desvios robustos para limitar a influência de dias de pânico sem descartá-los.
+Crucialmente, o normalizador foi ajustado \emph{exclusivamente} sobre o conjunto
+de treino e então aplicado a validação e teste, evitando o vazamento de
+estatísticas do futuro para o passado. O mesmo \texttt{RobustScaler} é aplicado
+ao alvo (log-retornos) para facilitar a convergência das redes; as predições são
+revertidas à escala original antes do cálculo das métricas.
+
+\subsection{Protocolo de avaliação}
+\label{sec:protocolo}
+
+Adotou-se um \emph{split} estritamente temporal (sem embaralhamento),
+reservando $70\%$ dos pregões para treino, $15\%$ para validação e $15\%$ para
+teste, em ordem cronológica. Para impedir que janelas vizinhas compartilhassem
+dias entre conjuntos --- ou que o horizonte do alvo de um conjunto invadisse as
+\emph{features} do conjunto seguinte --- inseriu-se um \emph{gap} de
+$L + \max(h) = 60 + 30 = 90$ pregões entre conjuntos. Com esse espaçamento, o
+último alvo de cada conjunto encerra antes do início da primeira janela de
+\emph{features} do conjunto seguinte, garantindo ausência de sobreposição. Como
+ilustra a Figura~\ref{fig:split}, essa divisão posiciona a crise de 2008 no
+treino, a pandemia de 2020 na validação e o forte \emph{rally} de 2021--2025 no
+teste --- um cenário desafiador, pois exige extrapolar para níveis de preço
+nunca vistos (viabilizado justamente pelo alvo em log-retorno).
+
+\begin{figure}[tbp]
+  \centering
+  \includegraphics[width=0.95\linewidth]{figuras/split_temporal.png}
+  \caption{Divisão temporal treino+validação / teste com \emph{gap}
+    anti-vazamento. O período de teste corresponde ao \emph{rally} recente do
+    ouro (2021--2025), exigindo generalização para patamares de preço inéditos.}
+  \label{fig:split}
+\end{figure}
+
+Para uma avaliação mais robusta dos modelos neurais, complementou-se o
+\emph{split} único com validação \emph{walk-forward} (janela de treino
+expansiva, fold de teste de $252$ pregões $\approx 1$ ano, com embargo de
+$L + \max(h)$ amostras). Como discutido por \cite{bergmeir2012cv}, a validação
+cruzada com respeito à ordem temporal é apropriada para séries; a
+\emph{walk-forward} fornece, além disso, uma distribuição de desempenho ao
+longo de diferentes anos/regimes, e não um único número possivelmente
+afortunado.
+
+\subsection{Modelos avaliados}
+\label{sec:modelos}
+
+A estratégia de modelagem segue uma progressão de complexidade. A regressão
+linear, adotada como linha de base, fornece um piso de desempenho a partir do
+qual se mede o ganho efetivo de arquiteturas mais sofisticadas; estas só se
+justificam quando superam significativamente essa fundação mínima.
+
+\subsubsection{Referências: \emph{random walk} e regressão linear}
+\label{sec:baseline}
+
+A referência inferior é o \emph{baseline} ingênuo de passeio aleatório
+(\emph{random walk}): o melhor palpite para o preço em $t+h$ é o preço em $t$,
+isto é, log-retorno previsto igual a zero ($\hat{P}_{t+h} = P_t$). Qualquer
+modelo que não supere esse \emph{baseline} não aprendeu nada útil.
+
+Como \emph{baseline} treinável, adotou-se a regressão linear múltipla,
+ajustada por mínimos quadrados ordinários
+($\hat{\boldsymbol{\beta}} = (\mathbf{X}^\top \mathbf{X})^{-1}\mathbf{X}^\top \mathbf{y}$),
+da biblioteca \texttt{scikit-learn} \cite{pedregosa2011sklearn}. Para colocá-la
+em pé de igualdade com os demais modelos, usou-se como entrada a \emph{mesma}
+janela deslizante de $L \times d$ atributos, achatada em um vetor de
+$60 \times 19 = 1140$ regressores. A função de autocorrelação parcial (PACF) dos
+log-retornos foi usada na análise exploratória para verificar a (quase) ausência
+de autocorrelação linear significativa.
+
+\subsubsection{XGBoost com otimização bayesiana}
+\label{sec:xgboost}
+
+O primeiro modelo não-linear é o XGBoost \cite{chen2016xgboost}, um
+\emph{gradient boosting} de árvores, treinado de forma independente por
+horizonte sobre a janela achatada de atributos. Os hiperparâmetros foram
+otimizados por busca bayesiana (\texttt{BayesSearchCV}, \texttt{scikit-optimize})
+\cite{snoek2012bayesopt} com $16$ iterações por horizonte e validação cruzada
+temporal de $5$ \emph{folds} (\texttt{TimeSeriesSplit}). O espaço de busca cobriu
+profundidade ($3$--$5$), taxa de aprendizado ($0{,}02$--$0{,}10$, log-uniforme),
+\emph{subsample} e \emph{colsample} ($0{,}75$--$0{,}95$), número de árvores
+($200$--$500$) e regularização $L_1/L_2$.
+
+\subsubsection{Redes recorrentes: GRU e LSTM}
+\label{sec:rnn}
+
+Avaliaram-se duas redes recorrentes que processam a janela de $60$ dias passo a
+passo: a GRU \cite{cho2014gru} e a LSTM \cite{hochreiter1997lstm}, esta última
+com uma célula de memória explícita ao custo de mais parâmetros. As duas
+arquiteturas são idênticas a menos da célula recorrente: duas camadas
+recorrentes de $64$ unidades intercaladas por \emph{Layer Normalization}
+\cite{ba2016layernorm} e \emph{Spatial Dropout} \cite{tompson2015spatialdropout},
+seguidas de uma camada densa de $64$ unidades com \emph{dropout}
+\cite{srivastava2014dropout} e \textbf{três cabeças de saída} (uma por
+horizonte) que compartilham a mesma representação, numa formulação de
+aprendizado multitarefa. A perda é a de \emph{Huber} \cite{huber1964}, robusta a
+\emph{outliers} de retorno, ponderada por horizonte ($1{,}0$, $0{,}7$, $0{,}5$),
+com otimizador Adam \cite{kingma2015adam}.
+
+\subsubsection{Rede convolucional 1D causal (modelo principal)}
+\label{sec:cnn}
+
+O modelo \emph{champion} é uma rede convolucional unidimensional (CNN 1D) com
+convoluções \emph{causais} --- que não acessam instantes futuros dentro da
+janela --- e dilatação crescente, à maneira de \emph{WaveNet}/TCN
+\cite{oord2016wavenet,bai2018tcn}. Empregaram-se três camadas convolucionais
+com dilatação $1 \to 2 \to 4$, o que amplia exponencialmente o campo receptivo
+e cobre os $60$ dias com poucas camadas, cada uma seguida de \emph{Layer
+Normalization}. Após \emph{Spatial Dropout}, a representação temporal é resumida
+pela concatenação de \emph{pooling} médio e máximo globais, capturando
+simultaneamente tendência (média) e choques abruptos (máximo). Seguem uma camada
+densa de $64$ unidades com \emph{dropout} e, novamente, três cabeças de saída
+$h \in \{5,15,30\}$. A perda é a de \emph{Huber}; o otimizador é o Adam. A
+arquitetura completa tem cerca de $60$ mil parâmetros treináveis. O treinamento
+usou \emph{early stopping} com restauração dos melhores pesos e redução da taxa
+de aprendizado em platôs, ambos monitorando a perda de validação.
+
+\subsubsection{Extensão: \emph{walk-forward} com previsão por quantis}
+\label{sec:quantis}
+
+Como evolução do modelo pontual, treinou-se uma variante da CNN que prevê, para
+cada horizonte, três quantis ($q_{10}, q_{50}, q_{90}$) em vez de um único
+valor, usando a \emph{pinball loss} (perda quantílica)
+\cite{koenkerbassett1978}. Combinada à validação \emph{walk-forward}, essa
+variante produz intervalos de incerteza ($p10$--$p90$) por horizonte, tornando a
+previsão mais informativa na prática do que uma estimativa pontual.
+
+\subsection{Métricas}
+\label{sec:metricas}
+
+Os modelos foram avaliados por Root Mean Squared Error (RMSE), Mean Absolute Error (MAE) e Mean Absolute Percentage Error (MAPE), calculados sobre o
+\emph{preço reconstruído} (Eq.~\ref{eq:reconstrucao}), e pela \emph{acurácia
+direcional} (proporção de acertos quanto ao sinal do retorno --- a métrica de
+maior relevância prática para decisão de compra/venda). Como referência
+sintética, reporta-se a razão
+\begin{equation}
+  \frac{\mathrm{MAE}}{\mathrm{MAE}_{\text{naive}}},
+\end{equation}
+em que o \emph{baseline} ingênuo (\emph{random walk}) prevê preço constante
+$\hat{P}_{t+h} = P_t$. Em palavras, a razão mede o erro do modelo em proporção
+ao de um previsor ingênuo que apenas repete o último preço observado: valores
+abaixo de $1$ indicam ganho sobre essa referência (por exemplo, $0{,}95$ = erro
+$5\%$ menor que o \emph{random walk}), $1{,}0$ indica empate, e valores acima
+de $1$ indicam desempenho \emph{pior} do que não prever nada.
+
+Ressalta-se que métricas calculadas diretamente na escala de preço, como o
+$R^2$, são \emph{enganosas} neste problema: por serem dominadas pelo nível
+não-estacionário do preço, atribuem desempenho artificialmente alto mesmo a
+modelos triviais --- um ponto que será evidenciado empiricamente na
+Seção~\ref{sec:discussao}. Por isso a avaliação privilegia métricas relativas ao
+\emph{baseline} e na escala de retorno. Para a vertente de volatilidade,
+reportam-se ainda a perda \emph{QLIKE}, comum em finanças por penalizar
+sub-previsão de risco \cite{patton2011volatility,zhang2015rsgarch}, e o
+coeficiente de correlação de postos de Spearman ($\rho$), medida não-paramétrica
+da relação monotônica entre previsto e realizado \cite{dellinger2017spearman}.
+
+% ===================================================================
+\section{Experimentos e Resultados}
+\label{sec:experimentos}
+
+\subsection{Configuração experimental}
+\label{sec:config}
+
+Os experimentos foram implementados em Python, com \texttt{scikit-learn}
+\cite{pedregosa2011sklearn} e \texttt{XGBoost} \cite{chen2016xgboost} para os
+modelos clássicos e \texttt{TensorFlow}/\texttt{Keras}
+\cite{abadi2016tensorflow,chollet2015keras} para as redes neurais, com
+aceleração em GPU. A reprodutibilidade foi garantida fixando a semente
+aleatória ($\texttt{SEED}=42$). Os hiperparâmetros das redes neurais foram
+selecionados com \texttt{Keras Tuner}; os do XGBoost, com busca bayesiana. Os
+artefatos (métricas, modelos, gráficos) são versionados por experimento, e o
+treinamento foi monitorado com \texttt{TensorBoard}. A
+Tabela~\ref{tab:hiperparametros} resume a configuração final do modelo
+principal e das redes recorrentes.
+
+\begin{table}[H]
+  \caption{Configuração final dos modelos neurais (selecionada por busca de
+    hiperparâmetros). Janela $L=60$, horizontes $\{5,15,30\}$, perda de Huber,
+    otimizador Adam.}
+  \label{tab:hiperparametros}
+  \centering
+  \small
+  \begin{tabular}{lll}
+    \toprule
+    Hiperparâmetro & CNN 1D (principal) & GRU / LSTM \\
+    \midrule
+    Camadas extratoras & 3 $\times$ Conv1D causal & 2 $\times$ recorrente (64) \\
+    Filtros / unidades & 96, 64, 256 & 64, 64 \\
+    Dilatação / kernel & $1{\to}2{\to}4$ / 5,3,3 & --- \\
+    \emph{Spatial Dropout} & 0{,}20 & 0{,}15 \\
+    Densa + \emph{Dropout} & 64 / 0{,}20 & 64 / 0{,}25 \\
+    Taxa de aprendizado & $4{,}1\times10^{-3}$ & $1{,}0\times10^{-3}$ \\
+    Pesos de perda ($h$5,15,30) & 1{,}0 / 0{,}6 / 0{,}2 & 1{,}0 / 0{,}7 / 0{,}5 \\
+    Épocas / \emph{batch} & 120 / 64 & 120 / 64 \\
+    \emph{Early stopping} & paciência 15 & paciência 15 \\
+    Parâmetros treináveis & $\approx 60$ mil & $\approx 60$--$80$ mil \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Análise exploratória dos dados}
+\label{sec:eda}
+
+A análise exploratória confirma as dificuldades estruturais do problema. A
+distribuição dos log-retornos (Figura~\ref{fig:retornos}) é claramente
+leptocúrtica: mais concentrada em torno de zero e com caudas muito mais pesadas
+que a normal teórica, além de assimetria negativa (quedas extremas mais
+frequentes que altas extremas). Esse comportamento motiva tanto o
+\texttt{RobustScaler} quanto a perda de Huber. A
+Figura~\ref{fig:acfpacf} mostra Autocorrelation Function (ACF) e PACF dos log-retornos: a autocorrelação
+linear é fraca e, em sua maior parte, dentro das bandas de confiança ---
+evidência direta da proximidade com um passeio aleatório e da insuficiência de
+modelos puramente lineares. Por fim, a Figura~\ref{fig:vol} exibe a volatilidade
+anualizada (janela de $21$ dias), revelando forte agrupamento de volatilidade
+(\emph{volatility clustering}), com picos nas crises de 2008 e 2020 ---
+fenômeno classicamente modelado por famílias (Generalized Autoregressive Conditional Heteroskedasticity (GARCH) \cite{bollerslev1986garch}.
+
+\begin{figure}[tbp]
+  \centering
+  \includegraphics[width=0.85\linewidth]{figuras/distribuicao_retornos.png}
+  \caption{Distribuição dos log-retornos diários: histograma \emph{vs.} normal
+    teórica, Q-Q plot e \emph{boxplot}. As caudas pesadas e a assimetria
+    negativa evidenciam leptocurtose.}
+  \label{fig:retornos}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.85\linewidth]{figuras/acf_pacf.png}
+  \caption{ACF e PACF dos log-retornos. A autocorrelação linear é fraca e em
+    grande parte não-significativa, coerente com a hipótese de passeio
+    aleatório.}
+  \label{fig:acfpacf}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\linewidth]{figuras/volatilidade.png}
+  \caption{Volatilidade anualizada (janela móvel de $21$ dias). Os picos
+    coincidem com as crises de 2008 e 2020, em destaque, ilustrando o agrupamento de
+    volatilidade.}
+  \label{fig:vol}
+\end{figure}
+
+\subsection{Resultados no conjunto de teste}
+\label{sec:resultados}
+
+A Tabela~\ref{tab:resultados} consolida o desempenho de todos os modelos no
+conjunto de teste, por horizonte. Três achados se destacam.
+
+\textbf{(i) A regressão linear não bate o \emph{random walk}.} Apesar de
+reduzir o erro nos horizontes mais longos, o \emph{baseline} linear apresenta
+$\mathrm{MAE}/\mathrm{MAE}_{\text{naive}} > 1$ em $h=5$ e $h=15$ ($1{,}160$ e
+$1{,}068$): com $1140$ regressores e sinal fraco, o modelo linear sobre-ajusta
+e não generaliza melhor que prever ``preço constante''. Isso confirma que
+estruturas lineares são insuficientes e estabelece o piso que os demais modelos
+precisam superar.
+
+\textbf{(ii) CNN e XGBoost superam o \emph{random walk} em todos os
+horizontes.} A CNN 1D causal obtém a melhor razão $\mathrm{MAE}/\mathrm{naive}$
+em $h=5$ ($0{,}983$) e $h=15$ ($0{,}971$), enquanto o XGBoost lidera em $h=30$
+($0{,}951$); ambos atingem $\approx 62\%$ de acurácia direcional em $h=30$,
+bem acima dos $50\%$ de uma moeda justa. As redes recorrentes (GRU e LSTM) ficam
+ligeiramente atrás, com ganhos marginais sobre a referência.
+
+\textbf{(iii) O ganho é maior em horizontes longos.} Para todos os modelos, a
+razão $\mathrm{MAE}/\mathrm{naive}$ cai e a acurácia direcional sobe à medida que
+$h$ cresce. Isso é intuitivo: em horizontes curtos o ruído domina e o
+\emph{random walk} é difícil de bater; em horizontes mais longos, componentes de
+tendência tornam-se relativamente mais previsíveis.
+
+\begin{table}[H]
+  \caption{Desempenho no conjunto de teste (\emph{split} único cronológico),
+    por horizonte $h$. Erros em US\$/oz sobre o preço reconstruído. A melhor
+    razão $\mathrm{MAE}/\mathrm{naive}$ de cada bloco está em \textbf{negrito}.
+    A referência \emph{naive} (\emph{random walk}) tem razão $1{,}000$ por
+    construção.}
+  \label{tab:resultados}
+  \centering
+  \small
+  \begin{tabular}{llccccc}
+    \toprule
+    $h$ & Modelo & MAE & RMSE & MAPE (\%) & Acur.\ dir.\ (\%) & MAE/naive \\
+    \midrule
+    \multirow{5}{*}{5}
+      & Regressão Linear (\emph{baseline}) & 38{,}23 & 48{,}20 & 1{,}82 & 52{,}5 & 1{,}160 \\
+      & XGBoost                            & 32{,}53 & 41{,}62 & 1{,}56 & 56{,}5 & 0{,}987 \\
+      & GRU                                & 32{,}65 & 41{,}77 & 1{,}57 & 53{,}4 & 0{,}990 \\
+      & LSTM                               & 32{,}62 & 41{,}50 & 1{,}57 & 53{,}3 & 0{,}989 \\
+      & \textbf{CNN 1D (principal)}        & 32{,}39 & 41{,}42 & 1{,}56 & 57{,}4 & \textbf{0{,}983} \\
+    \midrule
+    \multirow{5}{*}{15}
+      & Regressão Linear (\emph{baseline}) & 63{,}87 & 80{,}22 & 3{,}05 & 55{,}0 & 1{,}068 \\
+      & XGBoost                            & 58{,}26 & 73{,}11 & 2{,}78 & 58{,}9 & 0{,}974 \\
+      & GRU                                & 59{,}56 & 74{,}36 & 2{,}84 & 56{,}5 & 0{,}996 \\
+      & LSTM                               & 58{,}48 & 73{,}23 & 2{,}78 & 54{,}8 & 0{,}978 \\
+      & \textbf{CNN 1D (principal)}        & 58{,}08 & 72{,}68 & 2{,}77 & 58{,}9 & \textbf{0{,}971} \\
+    \midrule
+    \multirow{5}{*}{30}
+      & Regressão Linear (\emph{baseline}) & 87{,}66 & 109{,}09 & 4{,}16 & 58{,}4 & 1{,}002 \\
+      & \textbf{XGBoost}                   & 83{,}16 & 101{,}45 & 3{,}89 & 62{,}0 & \textbf{0{,}951} \\
+      & GRU                                & 85{,}00 & 103{,}70 & 3{,}97 & 58{,}7 & 0{,}972 \\
+      & LSTM                               & 85{,}77 & 103{,}49 & 4{,}02 & 57{,}6 & 0{,}980 \\
+      & CNN 1D (principal)                 & 83{,}43 & 102{,}38 & 3{,}92 & 62{,}0 & 0{,}954 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+A Figura~\ref{fig:curvas} mostra as curvas de aprendizado do modelo principal: a
+perda de treino cai continuamente, mas a de validação atinge um mínimo por volta
+da época $10$--$15$ e volta a subir --- daí a importância do \emph{early
+stopping} com restauração dos melhores pesos. A Figura~\ref{fig:pred} compara,
+no conjunto de teste, o preço real e o previsto pela CNN nos três horizontes: a
+aderência é boa em $h=5$ e o erro/atraso cresce em $h=15$ e $h=30$, como
+esperado, com o modelo seguindo a tendência mas suavizando os movimentos mais
+bruscos.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\linewidth]{figuras/cnn_curvas_treino.png}
+  \caption{Curvas de aprendizado da CNN principal. À esquerda, perda total de
+    treino e validação; à direita, perda de validação por horizonte. A subida da
+    perda de validação após $\approx$ 10 épocas motiva o \emph{early stopping}.}
+  \label{fig:curvas}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.82\linewidth]{figuras/cnn_pred_vs_real.png}
+  \caption{Preço real \emph{vs.} previsto pela CNN principal no conjunto de
+    teste, para $h=5$, $15$ e $30$ dias. A previsão acompanha a tendência e
+    suaviza os choques; o atraso aumenta com o horizonte.}
+  \label{fig:pred}
+\end{figure}
+
+\subsection{Validação cruzada e dependência de regime}
+\label{sec:robustez}
+
+Os números da Tabela~\ref{tab:resultados} referem-se a um único \emph{split} de
+teste --- favorável, por coincidir com um forte \emph{rally}. Para uma leitura
+honesta, a Tabela~\ref{tab:cv} resume a validação \emph{walk-forward} dos
+modelos neurais ao longo de múltiplos anos. O quadro muda: a razão
+$\mathrm{MAE}/\mathrm{naive}$ média fica \emph{próxima de} $1{,}0$ (entre
+$0{,}99$ e $1{,}07$) com \emph{desvio-padrão alto}, especialmente em $h=30$.
+A Figura~\ref{fig:cv} confirma visualmente: as caixas de
+$\mathrm{MAE}/\mathrm{naive}$ cruzam a linha de $1{,}0$, e o erro cresce com o
+horizonte.
+
+\begin{table}[H]
+  \caption{Validação \emph{walk-forward} (folds anuais) dos modelos neurais:
+    média $\pm$ desvio-padrão entre folds. A vantagem sobre o \emph{random walk}
+    é pequena e instável.}
+  \label{tab:cv}
+  \centering
+  \small
+  \begin{tabular}{llcc}
+    \toprule
+    Modelo & $h$ & Acur.\ dir.\ (\%) & MAE/naive \\
+    \midrule
+    \multirow{3}{*}{CNN 1D}
+      & 5  & $\mathbf{55{,}3 \pm 5{,}7}$  & $\mathbf{0{,}995 \pm 0{,}024}$ \\
+      & 15 & $54{,}8 \pm 8{,}4$            & $\mathbf{1{,}006 \pm 0{,}055}$ \\
+      & 30 & $54{,}8 \pm 13{,}9$           & $\mathbf{1{,}037 \pm 0{,}138}$ \\
+    \midrule
+    \multirow{3}{*}{GRU}
+      & 5  & $51{,}5 \pm 2{,}0$  & $1{,}042 \pm 0{,}038$ \\
+      & 15 & $53{,}9 \pm 6{,}6$  & $1{,}047 \pm 0{,}067$ \\
+      & 30 & $\mathbf{58{,}1 \pm 12{,}1}$ & $1{,}074 \pm 0{,}225$ \\
+    \midrule
+    \multirow{3}{*}{LSTM}
+      & 5  & $51{,}4 \pm 4{,}0$  & $1{,}048 \pm 0{,}047$ \\
+      & 15 & $\mathbf{55{,}1 \pm 4{,}5}$  & $1{,}049 \pm 0{,}068$ \\
+      & 30 & $55{,}9 \pm 10{,}7$ & $1{,}075 \pm 0{,}193$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.98\linewidth]{figuras/cnn_cv_boxplot.png}
+  \caption{Distribuição das métricas da CNN entre folds da validação
+    \emph{walk-forward}, por horizonte (1=$h$5, 2=$h$15, 3=$h$30). As caixas de
+    $\mathrm{MAE}/\mathrm{naive}$ cruzam $1{,}0$: o ganho sobre o \emph{random
+    walk} não é consistente entre regimes.}
+  \label{fig:cv}
+\end{figure}
+
+A causa fica clara ao decompor o desempenho por ano (Figura~\ref{fig:anual},
+para $h=30$): em anos de tendência definida (2021, 2024 e, sobretudo, 2025) a
+acurácia direcional ultrapassa $80\%$ e a $\mathrm{MAE}/\mathrm{naive}$ cai
+abaixo de $0{,}85$; já em anos de mercado lateral e ruidoso (2022 e 2023) a
+acurácia recua para $\approx 46$--$48\%$ (pior que o acaso) e a razão de erro
+ultrapassa $1{,}0$. Em outras palavras, os modelos capturam tendência quando ela existe, mas não ``criam'' sinal num mercado sem direção --- exatamente o que a teoria de
+mercados eficientes prevê \cite{fama1970efficient,jegadeesh1993momentum}.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\linewidth]{figuras/cnn_anual_h30.png}
+  \caption{Desempenho da CNN por ano calendário em $h=30$: acurácia direcional
+    (esq.) e $\mathrm{MAE}/\mathrm{naive}$ (dir.). O ganho concentra-se em anos
+    de tendência (2021, 2024, 2025) e desaparece em mercados laterais (2022,
+    2023).}
+  \label{fig:anual}
+\end{figure}
+
+\subsection{Discussão}
+\label{sec:discussao}
+
+\paragraph{O $R^2$ na escala de preço é enganoso.} A
+Figura~\ref{fig:scatter} reporta o $R^2$ entre preço previsto e real:
+$0{,}984$, $0{,}954$ e $0{,}920$ para $h=5,15,30$. Esses valores
+\emph{altíssimos} dariam a falsa impressão de um modelo quase perfeito ---
+mas o \emph{mesmo} modelo, medido pela $\mathrm{MAE}/\mathrm{naive}$, apenas
+empata ou supera marginalmente o passeio aleatório. A explicação é que o $R^2$
+no preço é dominado pelo nível/tendência da série: até prever ``preço de hoje''
+produziria $R^2$ elevado. Esse contraste é a justificativa empírica para
+priorizarmos métricas relativas ao \emph{baseline} e na escala de retorno
+(Seção~\ref{sec:metricas}).
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.98\linewidth]{figuras/cnn_scatter.png}
+  \caption{Dispersão preço previsto \emph{vs.} real (CNN, teste). O $R^2$ na
+    escala de preço é muito alto ($0{,}92$--$0{,}98$), porém enganoso: ele é
+    inflado pelo nível da série e não reflete o ganho real sobre o \emph{random
+    walk}.}
+  \label{fig:scatter}
+\end{figure}
+
+\paragraph{Convoluções, recorrência ou \emph{boosting}?} No \emph{split}
+único, a CNN 1D causal e o XGBoost foram os melhores e praticamente empataram,
+superando GRU e LSTM. A competitividade das convoluções causais frente às RNNs é
+coerente com a literatura de modelagem de sequências
+\cite{bai2018tcn,oord2016wavenet}; a força do XGBoost reforça que um
+\emph{baseline} não-neural bem ajustado é difícil de bater em dados tabulares.
+Na validação \emph{walk-forward}, a CNN apresentou a $\mathrm{MAE}/\mathrm{naive}$
+média mais próxima de $1$ (e menos instável), o que a torna a escolha de
+modelo principal.
+
+\paragraph{Onde os modelos falham.} O ponto fraco é sistemático: mercados
+laterais (2022--2023). Nesses regimes não há tendência a ser capturada e o sinal
+direcional efetivamente desaparece. As manchetes, na forma simples de índice de
+medo por léxico, parecem contribuir pouco; um tratamento de PLN mais rico é uma
+direção promissora. Por fim, a previsão por quantis (Seção~\ref{sec:quantis})
+mostrou-se um complemento valioso: em vez de uma estimativa pontual ilusoriamente
+precisa, ela comunica a incerteza, sendo essa mais útil para decisão sob risco.
+
+% ===================================================================
+\section{Conclusão}
+\label{sec:conclusao}
+
+Este trabalho tratou a previsão do preço do ouro como regressão multi-horizonte
+de log-retornos e comparou, sob um protocolo único e sem vazamento, cinco
+famílias de modelos. Os principais achados são: (i) reformular o alvo em
+log-retorno e avaliar contra um \emph{random walk} é essencial, visto que métricas na
+escala de preço, como o $R^2$, são enganosas; (ii) num \emph{split} de teste
+recente, a CNN 1D causal e o XGBoost superam o passeio aleatório em todos os
+horizontes, com $\approx 62\%$ de acurácia direcional em $h=30$; e (iii) sob
+validação \emph{walk-forward}, o ganho é pequeno e fortemente dependente do
+regime, concentrando-se em anos de tendência e desaparecendo em mercados
+laterais.
+
+As principais limitações são o sinal intrinsecamente fraco de séries
+financeiras, o uso de um único ativo e período, e o tratamento rudimentar do
+texto das manchetes. Como trabalhos futuros, destacam-se: substituir o índice de
+medo por léxico por modelos de sentimento financeiro ou \emph{embeddings};
+incorporar variáveis macroeconômicas exógenas (juros reais, dólar, outros
+metais) de forma causal; avaliar arquiteturas de atenção como o \emph{Temporal
+Fusion Transformer} \cite{lim2021tft}; e estender a previsão intervalar por
+quantis a todos os modelos, com calibração formal dos intervalos.
+
+% ===================================================================
+\section*{Contribuições dos autores}
+% PREENCHER com os nomes reais; mapeamento por componente do projeto.
+\begin{itemize}
+  \item \textbf{Paulino:} coleta e \emph{download} dos dados, análise
+        exploratória (EDA), \emph{pipeline} de PLN das manchetes (índice de
+        medo) e engenharia de atributos.
+  \item \textbf{Ivina:} \emph{baseline} de regressão linear e modelo
+        XGBoost com otimização bayesiana; análise por ano.
+  \item \textbf{Gabriel:} redes recorrentes (GRU e LSTM) e a CNN 1D causal
+        (modelo principal), incluindo a variante \emph{walk-forward} por
+        quantis.
+  \item \textbf{José:} infraestrutura compartilhada (\texttt{src/}:
+        janelamento, métricas, visualização), protocolo de validação,
+        rastreamento de experimentos e redação do artigo.
+\end{itemize}
+
+\bibliographystyle{sbc}
+\bibliography{referencias}
+
+\end{document}
