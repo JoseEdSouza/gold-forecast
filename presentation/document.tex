@@ -142,7 +142,78 @@
 \end{frame}
 
 %% ---------------------------------------------------------------------------
-\section{Reformulação}
+\section{Dados e Reformulação}
+\subsection{Os Dados}
+
+\begin{frame}{Os dados}
+    \begin{itemize}
+        \item \textbf{Fonte:} \emph{Precious Metals History since 2000 with News}, disponível no Kaggle \cite{kaggle_precious_metals}.
+        \item \textbf{Período:} 2000--2025, com frequência diária.
+        \item \textbf{Colunas principais:} OHLC (\emph{open, high, low, close}), volume e \emph{headlines}.
+        \item A coluna \emph{headlines} reúne, para cada pregão, manchetes associadas àquela data, vindas de diferentes jornais/fontes noticiosas.
+        \item \textbf{Alvo:} log-retorno acumulado para $h \in \{5, 15, 30\}$ pregões.
+        \item O problema deixa de ser prever nível de preço e passa a ser prever variação futura acumulada.
+    \end{itemize}
+\end{frame}
+
+%% ---------------------------------------------------------------------------
+{\logo{}
+\begin{frame}{Como construímos a feature textual}
+    \begin{itemize}
+        \item Se a coluna \texttt{headlines} existe, o texto é convertido para minúsculas e valores ausentes viram string vazia.
+        \item Em seguida, contamos ocorrências de um léxico de termos de estresse:
+        \item \scriptsize \texttt{crisis, crash, war, recession, inflation, default, collapse, panic, fear, conflict, sanction, bankrupt, plunge, turmoil, slump, selloff, attack, invasion, pandemic, virus}
+        \normalsize
+        \item O índice principal é:
+        \[
+            \texttt{fear\_ratio}
+            =
+            \frac{\#\text{termos do léxico}}{\#\text{separadores "/" nas manchetes} + 1}
+        \]
+        \item Depois calculamos \texttt{fear\_ma5}, uma média móvel de 5 dias desse índice.
+    \end{itemize}
+
+    \vspace{0.2cm}
+    \simplebox{\textbf{Intuição:} quanto mais palavras associadas a crise e pânico aparecem nas manchetes do pregão, maior o sinal textual de medo.}
+\end{frame}
+}
+
+%% ---------------------------------------------------------------------------
+{\logo{}
+\begin{frame}{Atributos de entrada ($d=19$)}
+    \scriptsize
+    \begin{table}
+    \centering
+    \caption{Atributos de entrada do modelo. Todos são causais e invariantes ao nível de preço.}
+    \begin{tabular}{p{0.28\linewidth} p{0.46\linewidth} p{0.16\linewidth}}
+        \toprule
+        \textbf{Atributo} & \textbf{Definição} & \textbf{Grupo} \\
+        \midrule
+        \texttt{log\_ret\_1,5,21} & $\log(P_t/P_{t-k}),\; k\in\{1,5,21\}$ & Momentum \\
+        \texttt{vol\_5, vol\_21} & desvio-padrão móvel de \texttt{log\_ret\_1} & Volatilidade \\
+        \texttt{vol\_ratio} & $\mathrm{vol}_5/\mathrm{vol}_{21}$ ($>1$ = estresse) & Volatilidade \\
+        \texttt{dist\_ma20,50} & $P_t/\mathrm{MA}_k - 1,\; k\in\{20,50\}$ & Tendência \\
+        \texttt{ma\_cross} & $\mathrm{MA}_{20}/\mathrm{MA}_{50} - 1$ & Tendência \\
+        \texttt{rsi} & RSI(14) recentrado em $[-1,1]$ & Oscilador \\
+        \texttt{macd\_hist} & histograma MACD normalizado por $P_t$ & Oscilador \\
+        \texttt{boll\_b} & posição \%B nas bandas de Bollinger & Oscilador \\
+        \texttt{drawdown\_252} & $P_t/\max_{252}(P) - 1$ & Regime \\
+        \texttt{hl\_range} & $(\mathrm{high}-\mathrm{low})/P_t$ & Intradiário \\
+        \texttt{close\_pos} & posição do fechamento na barra OHLC & Intradiário \\
+        \texttt{gap\_open} & $\log(\mathrm{open}_t/P_{t-1})$ & Intradiário \\
+        \texttt{volume} & volume negociado no dia & Liquidez \\
+        \texttt{fear\_ratio} & índice de medo por léxico nas manchetes & Texto \\
+        \texttt{fear\_ma5} & média móvel de 5 dias de \texttt{fear\_ratio} & Texto \\
+        \bottomrule
+    \end{tabular}
+    \end{table}
+
+    \vspace{0.2cm}
+    \simplebox{\textbf{Todos os atributos são causais e invariantes ao nível de preço.}}
+\end{frame}
+}
+
+%% ---------------------------------------------------------------------------
 \subsection{Antes da Reformulação}
 
 \begin{frame}{O que tentamos antes de reformular o problema}
@@ -296,56 +367,7 @@
 \end{frame}
 
 %% ---------------------------------------------------------------------------
-\section{Dados e Protocolo}
-\subsection{Os Dados}
-
-\begin{frame}{Os dados}
-    \begin{itemize}
-        \item \textbf{Fonte:} \emph{Precious Metals History since 2000 with News}, disponível no Kaggle \cite{kaggle_precious_metals}.
-        \item \textbf{Período:} 2000--2025, com frequência diária.
-        \item \textbf{Colunas principais:} OHLC (\emph{open, high, low, close}), volume e \emph{headlines}.
-        \item A coluna \emph{headlines} reúne, para cada pregão, manchetes associadas àquela data, vindas de diferentes jornais/fontes noticiosas.
-        \item \textbf{Alvo:} log-retorno acumulado para $h \in \{5, 15, 30\}$ pregões.
-        \item O problema deixa de ser prever nível de preço e passa a ser prever variação futura acumulada.
-    \end{itemize}
-\end{frame}
-
-%% ---------------------------------------------------------------------------
-{\logo{}
-\begin{frame}{Atributos de entrada ($d=19$)}
-    \scriptsize
-    \begin{table}
-    \centering
-    \caption{Atributos de entrada do modelo. Todos são causais e invariantes ao nível de preço.}
-    \begin{tabular}{p{0.28\linewidth} p{0.46\linewidth} p{0.16\linewidth}}
-        \toprule
-        \textbf{Atributo} & \textbf{Definição} & \textbf{Grupo} \\
-        \midrule
-        \texttt{log\_ret\_1,5,21} & $\log(P_t/P_{t-k}),\; k\in\{1,5,21\}$ & Momentum \\
-        \texttt{vol\_5, vol\_21} & desvio-padrão móvel de \texttt{log\_ret\_1} & Volatilidade \\
-        \texttt{vol\_ratio} & $\mathrm{vol}_5/\mathrm{vol}_{21}$ ($>1$ = estresse) & Volatilidade \\
-        \texttt{dist\_ma20,50} & $P_t/\mathrm{MA}_k - 1,\; k\in\{20,50\}$ & Tendência \\
-        \texttt{ma\_cross} & $\mathrm{MA}_{20}/\mathrm{MA}_{50} - 1$ & Tendência \\
-        \texttt{rsi} & RSI(14) recentrado em $[-1,1]$ & Oscilador \\
-        \texttt{macd\_hist} & histograma MACD normalizado por $P_t$ & Oscilador \\
-        \texttt{boll\_b} & posição \%B nas bandas de Bollinger & Oscilador \\
-        \texttt{drawdown\_252} & $P_t/\max_{252}(P) - 1$ & Regime \\
-        \texttt{hl\_range} & $(\mathrm{high}-\mathrm{low})/P_t$ & Intradiário \\
-        \texttt{close\_pos} & posição do fechamento na barra OHLC & Intradiário \\
-        \texttt{gap\_open} & $\log(\mathrm{open}_t/P_{t-1})$ & Intradiário \\
-        \texttt{volume} & volume negociado no dia & Liquidez \\
-        \texttt{fear\_ratio} & índice de medo por léxico nas manchetes & Texto \\
-        \texttt{fear\_ma5} & média móvel de 5 dias de \texttt{fear\_ratio} & Texto \\
-        \bottomrule
-    \end{tabular}
-    \end{table}
-
-    \vspace{0.2cm}
-    \simplebox{\textbf{Todos os atributos são causais e invariantes ao nível de preço.}}
-\end{frame}
-}
-
-%% ---------------------------------------------------------------------------
+\section{Protocolo e EDA}
 \subsection{Protocolo de Avaliação}
 
 \begin{frame}{Protocolo de avaliação}
@@ -601,7 +623,7 @@
         \item Usa \textbf{convoluções causais} com dilatação crescente: $1 \rightarrow 2 \rightarrow 4$.
         \item Essa dilatação amplia o campo receptivo e permite cobrir 60 dias com poucas camadas.
         \item A saída combina \emph{pooling} médio e máximo global antes das cabeças multitarefa.
-        \item Tamanho aproximado: \textbf{60 mil parâmetros treináveis}.
+        \item Tamanho: \textbf{110.979 parâmetros treináveis}.
     \end{itemize}
 
     \vspace{0.3cm}
@@ -627,7 +649,7 @@
         Pesos da perda & 1{,}0 / 0{,}6 / 0{,}2 & 1{,}0 / 0{,}7 / 0{,}5 \\
         Épocas / \emph{batch} & 120 / 64 & 120 / 64 \\
         \emph{Early stopping} & paciência 15 & paciência 15 \\
-        Parâmetros treináveis & $\approx 60$ mil & $\approx 60$--$80$ mil \\
+        Parâmetros treináveis & 110.979 & $\approx 60$--$80$ mil \\
         \bottomrule
     \end{tabular}
     \end{table}
